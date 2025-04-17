@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TablaAmortizacion } from "@/components/tabla-amortizacion"
+import { SkeletonDetallePrestamo } from "@/components/skeleton-detalle-prestamo"
 import { EditarPrestamoDialog } from "@/components/editar-prestamo-dialog"
 import { GenerarDocumentoDialog } from "@/components/generar-documento-dialog"
 import { NotificacionDialog } from "@/components/notificacion-dialog"
@@ -116,7 +117,7 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
   };
 
   if (loading) {
-    return <div className="container mx-auto p-4 flex items-center justify-center h-screen">Cargando...</div>
+    return <SkeletonDetallePrestamo />
   }
 
   if (!prestamo) {

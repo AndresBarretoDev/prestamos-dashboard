@@ -1,11 +1,9 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -13,7 +11,6 @@ import { PrestamoForm } from "@/components/prestamo-form"
 import type { Prestamo } from "@/lib/types"
 import { createPrestamo } from "@/lib/services/prestamos"
 import { useState } from "react"
-import { format } from "date-fns"
 
 interface NuevoPrestamoDialogProps {
   open: boolean
