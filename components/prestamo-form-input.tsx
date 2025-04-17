@@ -52,10 +52,7 @@ export function PrestamoFormInput({
                                     <FormControl>
                                         <Input placeholder="Juan Pérez Rodríguez" {...field} />
                                     </FormControl>
-                                    <FormDescription>
-                                        Nombre completo del deudor.
-                                    </FormDescription>
-                                    <FormMessage />
+                                    <FormMessage className="text-xs" />
                                 </FormItem>
                             )}
                         />
@@ -65,14 +62,11 @@ export function PrestamoFormInput({
                             name="cedula"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Cédula</FormLabel>
+                                    <FormLabel>Número de documento de identidad</FormLabel>
                                     <FormControl>
                                         <Input placeholder="1234567890" {...field} />
                                     </FormControl>
-                                    <FormDescription>
-                                        Número de documento de identidad.
-                                    </FormDescription>
-                                    <FormMessage />
+                                    <FormMessage className="text-xs" />
                                 </FormItem>
                             )}
                         />
@@ -82,7 +76,7 @@ export function PrestamoFormInput({
                             name="ciudad"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Ciudad</FormLabel>
+                                    <FormLabel>Ciudad de residencia</FormLabel>
                                     <Select
                                         onValueChange={field.onChange}
                                         defaultValue={field.value}
@@ -100,10 +94,7 @@ export function PrestamoFormInput({
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    <FormDescription>
-                                        Ciudad de residencia del deudor.
-                                    </FormDescription>
-                                    <FormMessage />
+                                    <FormMessage className="text-xs" />
                                 </FormItem>
                             )}
                         />
@@ -113,14 +104,11 @@ export function PrestamoFormInput({
                             name="telefono"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Teléfono</FormLabel>
+                                    <FormLabel>Teléfono de contacto</FormLabel>
                                     <FormControl>
                                         <Input placeholder="3101234567" {...field} />
                                     </FormControl>
-                                    <FormDescription>
-                                        Número de contacto del deudor.
-                                    </FormDescription>
-                                    <FormMessage />
+                                    <FormMessage className="text-xs" />
                                 </FormItem>
                             )}
                         />
@@ -143,10 +131,10 @@ export function PrestamoFormInput({
                                             {...field}
                                         />
                                     </FormControl>
-                                    <FormDescription>
+                                    <FormDescription className="text-xs">
                                         Entre $500.000 y $30.000.000
                                     </FormDescription>
-                                    <FormMessage />
+                                    <FormMessage className="text-xs" />
                                 </FormItem>
                             )}
                         />
@@ -167,10 +155,10 @@ export function PrestamoFormInput({
                                             {...field}
                                         />
                                     </FormControl>
-                                    <FormDescription>
+                                    <FormDescription className="text-xs">
                                         Tasa de interés mensual.
                                     </FormDescription>
-                                    <FormMessage />
+                                    <FormMessage className="text-xs" />
                                 </FormItem>
                             )}
                         />
@@ -190,10 +178,10 @@ export function PrestamoFormInput({
                                             {...field}
                                         />
                                     </FormControl>
-                                    <FormDescription>
+                                    <FormDescription className="text-xs">
                                         Entre 6 y 48 meses.
                                     </FormDescription>
-                                    <FormMessage />
+                                    <FormMessage className="text-xs" />
                                 </FormItem>
                             )}
                         />
@@ -213,10 +201,10 @@ export function PrestamoFormInput({
                                         min={format(new Date(), 'yyyy-MM-dd')}
                                     />
                                 </FormControl>
-                                <FormDescription>
+                                <FormDescription className="text-xs">
                                     Debe ser igual o posterior a la fecha actual.
                                 </FormDescription>
-                                <FormMessage />
+                                <FormMessage className="text-xs" />
                             </FormItem>
                         )}
                     />

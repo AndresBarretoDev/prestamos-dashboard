@@ -65,8 +65,8 @@ export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: Generar
               ciudadanía No. <span className="font-bold">{prestamo.deudor.cedula}</span>, me obligo a pagar incondicionalmente
               a la orden de <span className="font-bold">Andrés Barreto</span>, en la ciudad de{" "}
               <span className="font-bold">{prestamo.deudor.ciudad || "___________"}</span>, la suma de{" "}
-              <span className="font-bold">{formatCurrency(prestamo.monto)}</span>
-              ({montoEnLetras}), más los intereses señalados en este documento.
+              <span className="font-bold">{formatCurrency(prestamo.monto)}</span> ({montoEnLetras}),
+              más los intereses señalados en este documento.
             </p>
 
             <p className="text-justify">
@@ -133,47 +133,80 @@ export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: Generar
   )
 }
 
-// Función auxiliar para convertir números a letras (implementación básica)
+// Función auxiliar para convertir números a letras (implementación mejorada)
 function convertirNumeroALetras(numero: number): string {
-  if (!numero) return "cero pesos";
+  if (numero === 0) return "cero pesos";
 
-  // Esta es una implementación básica para números pequeños
-  const unidades = ['', 'un', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
-  const especiales = ['', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
+  const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+  const decenasEspeciales = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
   const decenas = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
   const centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
 
-  if (numero === 0) return "cero pesos";
-  if (numero === 1000000) return "un millón de pesos";
+  // Función auxiliar para convertir números menores a 1000
+  function convertirMenos1000(n: number): string {
+    if (n === 0) return '';
+    if (n === 1) return 'uno';
+    if (n === 100) return 'cien';
 
-  const miles = Math.floor(numero / 1000);
-  const centena = Math.floor((numero % 1000) / 100);
-  const decena = Math.floor((numero % 100) / 10);
-  const unidad = numero % 10;
+    const centena = Math.floor(n / 100);
+    const decena = Math.floor((n % 100) / 10);
+    const unidad = n % 10;
 
-  let resultado = '';
+    let resultado = '';
 
-  if (miles > 0) {
-    resultado += miles === 1 ? 'mil ' : unidades[miles] + ' mil ';
-  }
+    if (centena > 0) {
+      resultado += centenas[centena] + ' ';
+    }
 
-  if (centena > 0) {
-    resultado += centenas[centena] + ' ';
-  }
-
-  if (decena === 1 && unidad !== 0) {
-    resultado += especiales[unidad] + ' ';
-  } else {
-    if (decena > 0) {
-      resultado += decenas[decena];
-      if (unidad > 0) {
-        resultado += ' y ';
+    if (decena === 1 && unidad > 0) {
+      resultado += decenasEspeciales[unidad] + ' ';
+    } else {
+      if (decena > 0) {
+        resultado += decenas[decena];
+        if (unidad > 0) {
+          if (decena === 2) {
+            resultado = 'veinti' + unidades[unidad].toLowerCase();
+          } else {
+            resultado += ' y ' + unidades[unidad].toLowerCase();
+          }
+        }
+      } else if (unidad > 0) {
+        resultado += unidades[unidad].toLowerCase();
       }
     }
 
-    if (unidad > 0 && decena !== 1) {
-      resultado += unidades[unidad] + ' ';
-    }
+    return resultado.trim();
+  }
+
+  // Descomponer el número en sus partes
+  const millones = Math.floor(numero / 1000000);
+  const miles = Math.floor((numero % 1000000) / 1000);
+  const resto = numero % 1000;
+
+  let resultado = '';
+
+  // Millones
+  if (millones === 1) {
+    resultado += 'un millón ';
+  } else if (millones > 1) {
+    resultado += convertirMenos1000(millones) + ' millones ';
+  }
+
+  // Miles
+  if (miles === 1) {
+    resultado += 'mil ';
+  } else if (miles > 1) {
+    resultado += convertirMenos1000(miles) + ' mil ';
+  }
+
+  // Resto
+  if (resto > 0 || (millones === 0 && miles === 0)) {
+    resultado += convertirMenos1000(resto);
+  }
+
+  // Quitar el "uno" si está al final para corrección gramatical
+  if (resultado.endsWith('uno')) {
+    resultado = resultado.slice(0, -3) + 'un';
   }
 
   return resultado.trim() + ' pesos';
