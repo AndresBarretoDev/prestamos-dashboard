@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useParams } from "next/navigation"
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,16 +12,19 @@ import { EditarPrestamoDialog } from "@/components/editar-prestamo-dialog"
 import { GenerarDocumentoDialog } from "@/components/generar-documento-dialog"
 import { NotificacionDialog } from "@/components/notificacion-dialog"
 import { ConfirmarPagoDialog } from "@/components/confirmar-pago-dialog"
+import { AbonoCapitalDialog } from "@/components/abono-capital-dialog"
+import { HistorialAbonos } from "@/components/historial-abonos"
 import type { Prestamo } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
-import { getPrestamo, updatePrestamo, markCuotaPagada, updatePrestamoConNuevaAmortizacion } from "@/lib/services/prestamos"
+import { format } from "date-fns"
+import { es } from "date-fns/locale"
+import { getPrestamo, updatePrestamo, markCuotaPagada, updatePrestamoConNuevaAmortizacion, registrarAbonoCapital, getAbonosCapital } from "@/lib/services/prestamos"
 import { ArrowLeftIcon, FileEditIcon, FileTextIcon, DownloadIcon, CheckCircleIcon, BellIcon } from "lucide-react"
 
 // Dado que React.use() tiene problemas con TypeScript actualmente,
 // usaremos el método tradicional con advertencia para mantener el código funcional
 export default function DetallePrestamo({ params }: { params: { id: string } }) {
   const router = useRouter()
-  // Extraemos el ID directamente (método tradicional con advertencia)
   const prestamoId = params.id
   const [prestamo, setPrestamo] = useState<Prestamo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,6 +32,8 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
   const [documentoDialogOpen, setDocumentoDialogOpen] = useState(false)
   const [notificacionDialogOpen, setNotificacionDialogOpen] = useState(false)
   const [confirmarPagoDialogOpen, setConfirmarPagoDialogOpen] = useState(false)
+  const [abonos, setAbonos] = useState<any[]>([])
+  const [isAbonoDialogOpen, setIsAbonoDialogOpen] = useState(false)
 
   const fetchPrestamo = async () => {
     setLoading(true)
@@ -36,6 +41,8 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
       const data = await getPrestamo(prestamoId)
       if (data) {
         setPrestamo(data)
+        const abonosData = await getAbonosCapital(data.id)
+        setAbonos(abonosData)
       } else {
         router.push("/")
       }
@@ -56,23 +63,40 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
     setConfirmarPagoDialogOpen(true)
   }
 
-  const confirmarPago = async () => {
-    if (!prestamo) return
+  const confirmarPago = async (valorPagado: number, registrarExcedente: boolean): Promise<void> => {
+    if (!prestamo) throw new Error("No hay préstamo seleccionado");
 
     try {
       // Incrementar cuotas pagadas y marcar la cuota como pagada
       const proximoCuotaMes = (prestamo.cuotasPagadas || 0) + 1
-      const prestamoActualizado = await markCuotaPagada(prestamo.id, proximoCuotaMes)
+
+      // Obtener la próxima cuota para pasar su valor
+      const proximaCuota = prestamo.tablaAmortizacion.find(c => c.numero === proximoCuotaMes)
+      if (!proximaCuota) throw new Error("No se encontró la cuota a pagar");
+
+      const prestamoActualizado = await markCuotaPagada(
+        prestamo.id,
+        proximoCuotaMes,
+        valorPagado,
+        registrarExcedente
+      );
 
       if (prestamoActualizado) {
-        setPrestamo(prestamoActualizado)
+        setPrestamo(prestamoActualizado);
+        // Actualizar la lista de abonos si se registró un excedente
+        if (registrarExcedente && valorPagado > proximaCuota.valor) {
+          const abonosData = await getAbonosCapital(prestamo.id);
+          setAbonos(abonosData);
+        }
+        setConfirmarPagoDialogOpen(false);
+      } else {
+        throw new Error("No se pudo actualizar el préstamo");
       }
     } catch (error) {
-      console.error("Error marking cuota as paid:", error)
+      console.error("Error marking cuota as paid:", error);
+      throw error; // Relanzar el error para que pueda ser manejado en el componente del diálogo
     }
-
-    setConfirmarPagoDialogOpen(false)
-  }
+  };
 
   const handleActualizarPrestamo = async (datosActualizados: Partial<Prestamo>) => {
     if (!prestamo) return
@@ -114,6 +138,30 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
     }
 
     setEditarDialogOpen(false);
+  };
+
+  const handleAbonoConfirm = async (data: {
+    monto: number
+    fecha_abono: string
+    observaciones?: string
+    tipo_recalculo: 'reducir_cuota' | 'reducir_plazo'
+  }): Promise<void> => {
+    if (!prestamo) throw new Error("No hay préstamo seleccionado");
+
+    try {
+      const updatedPrestamo = await registrarAbonoCapital(prestamo.id, data);
+      if (updatedPrestamo) {
+        setPrestamo(updatedPrestamo);
+        const abonosData = await getAbonosCapital(prestamo.id);
+        setAbonos(abonosData);
+        setIsAbonoDialogOpen(false);
+      } else {
+        throw new Error("No se pudo actualizar el préstamo");
+      }
+    } catch (error) {
+      console.error("Error al registrar abono a capital:", error);
+      throw error; // Relanzar el error para que pueda ser manejado en el componente del diálogo
+    }
   };
 
   if (loading) {
@@ -259,6 +307,9 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
           <BellIcon className="h-4 w-4 mr-2" />
           Configurar recordatorio
         </Button>
+        <Button variant="outline" onClick={() => setIsAbonoDialogOpen(true)}>
+          Registrar Abono a Capital
+        </Button>
         <Button variant="outline">
           <DownloadIcon className="h-4 w-4 mr-2" />
           Exportar tabla
@@ -271,6 +322,15 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <TablaAmortizacion cuotas={prestamo.tablaAmortizacion} cuotasPagadas={prestamo.cuotasPagadas || 0} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Historial de Abonos a Capital</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <HistorialAbonos abonos={abonos} />
         </CardContent>
       </Card>
 
@@ -290,7 +350,14 @@ export default function DetallePrestamo({ params }: { params: { id: string } }) 
         onOpenChange={setConfirmarPagoDialogOpen}
         prestamo={prestamo}
         proximaCuota={proximaCuota}
-        onConfirm={confirmarPago}
+        onConfirm={(valorPagado, registrarExcedente) => confirmarPago(valorPagado, registrarExcedente)}
+      />
+
+      <AbonoCapitalDialog
+        open={isAbonoDialogOpen}
+        onOpenChange={setIsAbonoDialogOpen}
+        prestamo={prestamo}
+        onConfirm={handleAbonoConfirm}
       />
     </div>
   )

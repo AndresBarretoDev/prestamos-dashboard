@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabase';
 import type { Prestamo, Deudor, Cuota } from '@/lib/types';
 import { addMonths, format } from 'date-fns';
+import { calcularCuotaMensual, calcularTablaAmortizacion } from '@/lib/calculadora';
+import { formatCurrency } from '@/lib/utils';
 
 // Función para obtener todos los préstamos
 export async function getPrestamos(): Promise<Prestamo[]> {
@@ -226,9 +228,183 @@ export async function updatePrestamo(id: string, data: {
     return getPrestamo(id);
 }
 
-// Función para marcar una cuota como pagada
-export async function markCuotaPagada(prestamoId: string, cuotaNumero: number, valorPagado?: number): Promise<Prestamo | null> {
-    // Primero obtenemos la cuota
+// Función para registrar un abono a capital
+export async function registrarAbonoCapital(
+    prestamoId: string,
+    data: {
+        monto: number;
+        fecha_abono: string;
+        observaciones?: string;
+        tipo_recalculo: 'reducir_cuota' | 'reducir_plazo';
+    }
+): Promise<Prestamo | null> {
+    // Obtener el préstamo actual
+    const prestamo = await getPrestamo(prestamoId);
+    if (!prestamo) return null;
+
+    // Validar que el monto no exceda el saldo pendiente
+    const saldoPendiente = prestamo.tablaAmortizacion
+        .filter(cuota => cuota.estado === 'pendiente')
+        .reduce((sum, cuota) => sum + cuota.abono_capital, 0);
+
+    if (data.monto > saldoPendiente) {
+        throw new Error('El monto del abono excede el saldo pendiente del préstamo');
+    }
+
+    // Registrar el abono
+    const { error: abonoError } = await supabase
+        .from('abonos_capital')
+        .insert({
+            prestamo_id: prestamoId,
+            monto: data.monto,
+            fecha_abono: data.fecha_abono,
+            observaciones: data.observaciones,
+            tipo_recalculo: data.tipo_recalculo
+        });
+
+    if (abonoError) {
+        console.error('Error registering abono:', abonoError);
+        return null;
+    }
+
+    // Recalcular el préstamo
+    const nuevoSaldo = saldoPendiente - data.monto;
+    const cuotasPagadas = prestamo.tablaAmortizacion.filter(cuota => cuota.estado === 'pagada').length;
+    const cuotasRestantes = prestamo.tablaAmortizacion.filter(cuota => cuota.estado === 'pendiente').length;
+
+    // Guardar las fechas de vencimiento originales para mantenerlas
+    const cuotasPendientesOriginales = prestamo.tablaAmortizacion
+        .filter(cuota => cuota.estado === 'pendiente')
+        .sort((a, b) => a.numero - b.numero);
+
+    let nuevaTablaAmortizacion: Cuota[];
+    let nuevaCantidadCuotas: number;
+    let nuevaCuotaMensual: number;
+
+    if (data.tipo_recalculo === 'reducir_cuota') {
+        // Recalcular cuota manteniendo el plazo
+        const nuevaCuota = calcularCuotaMensual(nuevoSaldo, prestamo.tasa_mensual, cuotasRestantes);
+        nuevaTablaAmortizacion = calcularTablaAmortizacion(
+            nuevoSaldo,
+            prestamo.tasa_mensual,
+            cuotasRestantes,
+            nuevaCuota,
+            prestamo.fecha_inicio
+        );
+        nuevaCantidadCuotas = cuotasPagadas + cuotasRestantes;
+        nuevaCuotaMensual = nuevaCuota;
+    } else {
+        // Recalcular plazo manteniendo la cuota
+        const nuevaCuota = prestamo.cuota_mensual;
+        // Verificar que el monto restante sea suficiente para ser pagado con la cuota actual
+        if (nuevaCuota <= (nuevoSaldo * prestamo.tasa_mensual)) {
+            throw new Error('La cuota actual es demasiado baja para cubrir el saldo restante. Elija reducir cuota en su lugar.');
+        }
+
+        const nuevoPlazo = Math.max(1, Math.ceil(
+            Math.log(nuevaCuota / (nuevaCuota - nuevoSaldo * prestamo.tasa_mensual)) /
+            Math.log(1 + prestamo.tasa_mensual)
+        ));
+
+        nuevaTablaAmortizacion = calcularTablaAmortizacion(
+            nuevoSaldo,
+            prestamo.tasa_mensual,
+            nuevoPlazo,
+            nuevaCuota,
+            prestamo.fecha_inicio
+        );
+        nuevaCantidadCuotas = cuotasPagadas + nuevoPlazo;
+        nuevaCuotaMensual = nuevaCuota;
+    }
+
+    // Verificar que haya cuotas calculadas
+    if (!nuevaTablaAmortizacion || nuevaTablaAmortizacion.length === 0) {
+        throw new Error('No se pudo calcular una nueva tabla de amortización. El saldo pendiente es demasiado bajo.');
+    }
+
+    // Actualizar el préstamo con la nueva tabla de amortización
+    const { error: updateError } = await supabase
+        .from('prestamos')
+        .update({
+            cuota_mensual: nuevaCuotaMensual,
+            cuotas: nuevaCantidadCuotas
+        })
+        .eq('id', prestamoId);
+
+    if (updateError) {
+        console.error('Error updating prestamo:', updateError);
+        return null;
+    }
+
+    // Eliminar todas las cuotas pendientes antes de insertar las nuevas
+    const { error: deleteError } = await supabase
+        .from('cuotas')
+        .delete()
+        .eq('prestamo_id', prestamoId)
+        .eq('estado', 'pendiente');
+
+    if (deleteError) {
+        console.error('Error deleting existing cuotas:', deleteError);
+        return null;
+    }
+
+    // Preparar las nuevas cuotas con numeración correcta y preservando las fechas originales
+    const cuotasToInsert = nuevaTablaAmortizacion.map((cuota, index) => {
+        // Mantener las fechas originales si están disponibles, o usar las nuevas calculadas
+        const fechaVencimiento = index < cuotasPendientesOriginales.length
+            ? cuotasPendientesOriginales[index].fecha_vencimiento
+            : cuota.fecha_vencimiento;
+
+        return {
+            prestamo_id: prestamoId,
+            numero: cuotasPagadas + index + 1,
+            fecha_vencimiento: fechaVencimiento,
+            valor: cuota.valor,
+            interes: cuota.interes,
+            abono_capital: cuota.abono_capital,
+            estado: 'pendiente'
+        };
+    });
+
+    // Insertar las nuevas cuotas
+    if (cuotasToInsert.length > 0) {
+        const { error: insertError } = await supabase
+            .from('cuotas')
+            .insert(cuotasToInsert);
+
+        if (insertError) {
+            console.error('Error inserting new cuotas:', insertError);
+            return null;
+        }
+    }
+
+    return getPrestamo(prestamoId);
+}
+
+// Función para obtener el historial de abonos a capital
+export async function getAbonosCapital(prestamoId: string) {
+    const { data, error } = await supabase
+        .from('abonos_capital')
+        .select('*')
+        .eq('prestamo_id', prestamoId)
+        .order('fecha_abono', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching abonos:', error);
+        return [];
+    }
+
+    return data;
+}
+
+// Modificar la función markCuotaPagada para manejar excedentes
+export async function markCuotaPagada(
+    prestamoId: string,
+    cuotaNumero: number,
+    valorPagado: number = 0,
+    registrarExcedente: boolean = true
+): Promise<Prestamo | null> {
+    // Obtener la cuota
     const { data: cuota, error: cuotaError } = await supabase
         .from('cuotas')
         .select('*')
@@ -241,8 +417,13 @@ export async function markCuotaPagada(prestamoId: string, cuotaNumero: number, v
         return null;
     }
 
-    // Actualizamos la cuota a estado "pagada"
-    const fechaPago = new Date().toISOString().split('T')[0];
+    // Validar que el monto pagado no sea menor al valor de la cuota
+    if (valorPagado < cuota.valor) {
+        throw new Error(`El monto pagado (${formatCurrency(valorPagado)}) no puede ser menor al valor de la cuota (${formatCurrency(cuota.valor)})`);
+    }
+
+    // Marcar la cuota como pagada
+    const fechaPago = new Date().toISOString();
     const { error: updateError } = await supabase
         .from('cuotas')
         .update({
@@ -256,23 +437,37 @@ export async function markCuotaPagada(prestamoId: string, cuotaNumero: number, v
         return null;
     }
 
-    // Registramos el pago
+    // Registrar el pago
     const { error: pagoError } = await supabase
         .from('pagos')
         .insert({
             prestamo_id: prestamoId,
             cuota_id: cuota.id,
-            valor_pagado: valorPagado || cuota.valor,
+            valor_pagado: valorPagado > 0 ? valorPagado : cuota.valor,
             fecha_pago: fechaPago
         });
 
     if (pagoError) {
         console.error('Error registering pago:', pagoError);
-        // Aquí podríamos revertir el cambio en la cuota si falla el registro del pago
         return null;
     }
 
-    // Verificamos si todas las cuotas están pagadas para actualizar el estado del préstamo
+    // Si el valor pagado es mayor que el valor de la cuota y se ha elegido registrar el excedente,
+    // registrar el excedente como abono a capital
+    if (valorPagado > cuota.valor && registrarExcedente) {
+        const excedente = valorPagado - cuota.valor;
+        // Solo registrar si el excedente es significativo (más de 100 pesos)
+        if (excedente >= 100) {
+            await registrarAbonoCapital(prestamoId, {
+                monto: excedente,
+                fecha_abono: fechaPago,
+                observaciones: `Excedente del pago de la cuota ${cuotaNumero}`,
+                tipo_recalculo: 'reducir_cuota' // Por defecto, reducir la cuota
+            });
+        }
+    }
+
+    // Verificar si todas las cuotas están pagadas
     const { data: cuotasPendientes, error: pendientesError } = await supabase
         .from('cuotas')
         .select('count')
@@ -284,15 +479,11 @@ export async function markCuotaPagada(prestamoId: string, cuotaNumero: number, v
         return null;
     }
 
-    const cuotasPendientesCount = cuotasPendientes[0]?.count || 0;
-
-    if (cuotasPendientesCount === 0) {
-        // Si no hay cuotas pendientes, actualizamos el estado del préstamo a "pagado"
+    if (cuotasPendientes[0]?.count === 0) {
+        // Si no hay cuotas pendientes, actualizar el estado del préstamo
         const { error: prestamoError } = await supabase
             .from('prestamos')
-            .update({
-                estado: 'pagado'
-            })
+            .update({ estado: 'pagado' })
             .eq('id', prestamoId);
 
         if (prestamoError) {
@@ -301,7 +492,6 @@ export async function markCuotaPagada(prestamoId: string, cuotaNumero: number, v
         }
     }
 
-    // Devolvemos el préstamo actualizado
     return getPrestamo(prestamoId);
 }
 
