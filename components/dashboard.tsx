@@ -134,9 +134,9 @@ export function Dashboard() {
           <ResumenCards prestamos={prestamos} />
 
           {/* Controles de visualización de gráficos */}
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between flex-wrap gap-4 md:flex-nowrap items-center mb-4">
             <h2 className="text-xl font-semibold">Gráficas y visualizaciones</h2>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 md:flex w-full md:w-auto gap-2">
               <Button
                 variant={isChartSelected("pie") ? "default" : "outline"}
                 size="sm"
