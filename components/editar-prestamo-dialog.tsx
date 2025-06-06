@@ -59,6 +59,17 @@ export function EditarPrestamoDialog({ open, onOpenChange, prestamo, onSave }: E
   const [totalPagado, setTotalPagado] = useState(prestamo.totalPagado || 0)
   const [showAlert, setShowAlert] = useState(false)
 
+  // Función para detectar si hay cambios en el formulario
+  const hasChanges = () => {
+    const currentValues = watch();
+    return (
+      Number(currentValues.monto) !== Number(prestamo.monto) ||
+      Number(currentValues.cuotas) !== Number(prestamo.cuotas) ||
+      Number(currentValues.tasa_mensual) !== Number(prestamo.tasa_mensual) ||
+      currentValues.fecha_inicio !== prestamo.fecha_inicio
+    );
+  };
+
   useEffect(() => {
     if (open) {
       // Resetear formulario cuando se abre el diálogo
@@ -110,14 +121,46 @@ export function EditarPrestamoDialog({ open, onOpenChange, prestamo, onSave }: E
   }
 
   const guardarCambios = async () => {
-    // Validar los datos primero
-    const valid = await form.trigger();
-    if (!valid) return;
-
     setIsSubmitting(true);
 
     try {
       const values = form.getValues();
+
+      // Validación básica
+      if (!values.monto || values.monto <= 0) {
+        alert("El monto debe ser mayor a 0");
+        return;
+      }
+      if (!values.cuotas || values.cuotas <= 0) {
+        alert("Las cuotas deben ser mayor a 0");
+        return;
+      }
+      if (!values.tasa_mensual || values.tasa_mensual <= 0) {
+        alert("La tasa debe ser mayor a 0");
+        return;
+      }
+      if (!values.fecha_inicio) {
+        alert("Debe seleccionar una fecha de inicio");
+        return;
+      }
+
+      // Si estamos en la pestaña "datos" y hay cambios, recalcular automáticamente
+      if (activeTab === "datos" && hasChanges()) {
+        // Calcular cuota mensual
+        const cuota = calcularCuotaMensual(values.monto, values.tasa_mensual, values.cuotas)
+        setCuotaMensual(cuota)
+
+        // Generar tabla de amortización
+        const tabla = calcularTablaAmortizacion(values.monto, values.tasa_mensual, values.cuotas, cuota, values.fecha_inicio)
+        setTablaAmortizacion(tabla)
+
+        // Calcular ganancia total y total pagado
+        const ganancia = calcularGananciaTotal(tabla)
+        setGananciaTotal(ganancia)
+
+        const total = calcularTotalPagado(values.monto, tabla)
+        setTotalPagado(total)
+      }
 
       // Crear objeto de préstamo actualizado
       const prestamoActualizado: Prestamo = {
@@ -214,7 +257,7 @@ export function EditarPrestamoDialog({ open, onOpenChange, prestamo, onSave }: E
             <Button
               onClick={recalcularPrestamo}
               className="w-full mt-4"
-              disabled={!formState.isValid || watch("monto") <= 0 || watch("cuotas") <= 0}
+              disabled={watch("monto") <= 0 || watch("cuotas") <= 0 || watch("tasa_mensual") <= 0 || !watch("fecha_inicio")}
             >
               Recalcular préstamo
             </Button>
@@ -275,7 +318,10 @@ export function EditarPrestamoDialog({ open, onOpenChange, prestamo, onSave }: E
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={guardarCambios} disabled={activeTab === "datos" || isSubmitting}>
+          <Button
+            onClick={guardarCambios}
+            disabled={!hasChanges() || isSubmitting}
+          >
             {isSubmitting ? "Guardando..." : "Guardar cambios"}
           </Button>
         </DialogFooter>

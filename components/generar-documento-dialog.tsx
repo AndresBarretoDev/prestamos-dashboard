@@ -10,9 +10,13 @@ import {
 } from "@/components/ui/dialog"
 import type { Prestamo } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
-import { DownloadIcon } from "lucide-react"
+import { DownloadIcon, Loader2 } from "lucide-react"
 import { format, addMonths } from "date-fns"
 import { es } from "date-fns/locale"
+import { configuracion } from "@/lib/config"
+import { exportToPDF, generatePagareFilename } from "@/lib/utils/pdf-export"
+import { useRef, useState } from "react"
+import { toast } from "sonner"
 
 interface GenerarDocumentoDialogProps {
   open: boolean
@@ -21,10 +25,16 @@ interface GenerarDocumentoDialogProps {
 }
 
 export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: GenerarDocumentoDialogProps) {
+  const [isExporting, setIsExporting] = useState(false)
+  const documentRef = useRef<HTMLDivElement>(null)
+
   const fechaActual = format(new Date(), "dd/MM/yyyy")
 
   // Calcular la fecha de vencimiento sumando el número de cuotas a la fecha de inicio
-  const fechaInicio = new Date(prestamo.fecha_inicio)
+  // Usar la misma lógica que en la tabla de amortización para evitar diferencias
+  const [year, month, day] = prestamo.fecha_inicio.split('-').map(Number)
+  const fechaInicio = new Date(year, month - 1, day) // month - 1 porque Date usa índices basados en 0 para meses
+
   const fechaVencimiento = format(addMonths(fechaInicio, prestamo.cuotas), "dd/MM/yyyy", { locale: es })
 
   // Fecha de la primera cuota (un mes después de la fecha de inicio)
@@ -36,6 +46,32 @@ export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: Generar
   // Convertir el monto a texto
   const montoEnLetras = convertirNumeroALetras(prestamo.monto)
 
+  const handleExportPDF = async () => {
+    if (!documentRef.current) {
+      toast.error("Error al generar el PDF")
+      return
+    }
+
+    setIsExporting(true)
+
+    try {
+      const filename = generatePagareFilename(prestamo.id, prestamo.deudor.nombre)
+      await exportToPDF({
+        element: documentRef.current,
+        filename,
+        format: 'a4',
+        orientation: 'portrait'
+      })
+
+      toast.success("PDF exportado exitosamente")
+    } catch (error) {
+      console.error("Error al exportar PDF:", error)
+      toast.error("Error al generar el PDF. Por favor, intenta nuevamente.")
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
@@ -44,13 +80,13 @@ export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: Generar
           <DialogDescription>Vista previa del pagaré generado para este préstamo.</DialogDescription>
         </DialogHeader>
 
-        <div className="border rounded-md p-6 bg-white text-black">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold uppercase">PAGARÉ</h2>
-            <p className="text-sm">No. {prestamo.id}</p>
+        <div ref={documentRef} className="p-8 bg-white text-black max-w-[800px] mx-auto" style={{ fontFamily: 'Arial, sans-serif', lineHeight: '1.6', fontSize: '14px' }}>
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold uppercase mb-2">PAGARÉ</h2>
+            <p className="text-lg">No. {prestamo.id}</p>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-6">
             <p>
               <span className="font-bold">VALOR:</span> {formatCurrency(prestamo.monto)}
             </p>
@@ -60,60 +96,58 @@ export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: Generar
               {fechaVencimiento}
             </p>
 
-            <p className="text-justify">
-              Yo, <span className="font-bold">{prestamo.deudor.nombre}</span>, mayor de edad, identificado con cédula de
-              ciudadanía No. <span className="font-bold">{prestamo.deudor.cedula}</span>, me obligo a pagar incondicionalmente
-              a la orden de <span className="font-bold">Andrés Barreto</span>, en la ciudad de{" "}
-              <span className="font-bold">{prestamo.deudor.ciudad || "___________"}</span>, la suma de{" "}
-              <span className="font-bold">{formatCurrency(prestamo.monto)}</span> ({montoEnLetras}),
-              más los intereses señalados en este documento.
+            <p className="text-justify leading-relaxed">
+              Yo, <strong>{prestamo.deudor.nombre}</strong>, mayor de edad, identificado con cédula de
+              ciudadanía No. <strong>{prestamo.deudor.cedula}</strong>, me obligo a pagar incondicionalmente,
+              a la orden de <strong>{configuracion.representanteLegal.nombre}</strong>, identificado con cédula de
+              ciudadanía No. <strong>{configuracion.representanteLegal.cedula}</strong>, en la ciudad de{" "}
+              <strong>{prestamo.deudor.ciudad || configuracion.empresa.ciudad}</strong>, la suma de{" "}
+              <strong>{formatCurrency(prestamo.monto)}</strong> ({montoEnLetras}),
+              más los intereses señalados en el presente documento.
             </p>
 
-            <p className="text-justify">
-              Me comprometo a pagar la suma indicada en <span className="font-bold">{prestamo.cuotas}</span> cuotas
-              mensuales de <span className="font-bold">{formatCurrency(prestamo.cuota_mensual)}</span> cada una, con
+            <p className="text-justify leading-relaxed">
+              Me comprometo a pagar la suma mencionada en <strong>{convertirCuotasAPalabras(prestamo.cuotas)} ({prestamo.cuotas})</strong> cuotas
+              mensuales de <strong>{formatCurrency(prestamo.cuota_mensual)}</strong> cada una, con
               vencimiento el mismo día de cada mes, siendo la primera cuota pagadera el día{" "}
-              <span className="font-bold">{fechaPrimeraCuota}</span>.
+              <strong>{fechaPrimeraCuota}</strong>.
             </p>
 
-            <p className="text-justify">
-              La tasa de interés pactada es del <span className="font-bold">{prestamo.tasa_mensual}%</span> mensual sobre
+            <p className="text-justify leading-relaxed">
+              La tasa de interés pactada es del <strong>{prestamo.tasa_mensual}%</strong> mensual sobre
               saldos.
             </p>
 
-            <p className="text-justify">
-              En caso de mora, pagaré intereses moratorios a la tasa máxima legal permitida, sin perjuicio de las
-              acciones legales que el acreedor pueda adelantar para el cobro de la obligación.
+            <p className="text-justify leading-relaxed">
+              En caso de mora, me obligo a pagar intereses moratorios a la tasa máxima legal permitida, sin perjuicio de las
+              acciones legales que el acreedor pueda iniciar para el cobro de la obligación.
             </p>
 
-            <p className="text-justify">
-              Autorizo a Andrés Barreto para reportar, procesar, solicitar y divulgar a las centrales de riesgo financiero
-              toda la información referente a mi comportamiento como deudor.
+            <p className="text-justify leading-relaxed">
+              Asimismo, autorizo de manera expresa a <strong>{configuracion.representanteLegal.nombre}</strong> para reportar, procesar, solicitar y divulgar a las centrales de riesgo financiero
+              toda la información relacionada con mi comportamiento como deudor.
             </p>
 
-            <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="mt-12 grid grid-cols-2 gap-12">
               <div>
-                <p className="mb-4">Firma del Deudor:</p>
-                <div className="border-b border-black h-8"></div>
-                <p className="mt-2">
-                  <span className="font-bold">{prestamo.deudor.nombre}</span>
-                  <br />
-                  CC: {prestamo.deudor.cedula}
-                  <br />
-                  Tel: {prestamo.deudor.telefono}
-                </p>
+                <p className="mb-6 font-semibold">Firma del Deudor:</p>
+                <div className="border-b-2 border-black h-12 mb-4"></div>
+                <div className="text-sm">
+                  <p className="font-bold">{prestamo.deudor.nombre}</p>
+                  <p>CC: {prestamo.deudor.cedula}</p>
+                  <p>Tel: {prestamo.deudor.telefono}</p>
+                </div>
               </div>
 
               <div>
-                <p className="mb-4">Firma del Acreedor:</p>
-                <div className="border-b border-black h-8"></div>
-                <p className="mt-2">
-                  <span className="font-bold">Andrés Barreto</span>
-                  <br />
-                  Representante Legal
-                  <br />
-                  Fecha: {fechaActual}
-                </p>
+                <p className="mb-6 font-semibold">Firma del Acreedor:</p>
+                <div className="border-b-2 border-black h-12 mb-4"></div>
+                <div className="text-sm">
+                  <p className="font-bold">{configuracion.representanteLegal.nombre}</p>
+                  <p>CC: {configuracion.representanteLegal.cedula}</p>
+                  <p>{configuracion.representanteLegal.cargo}</p>
+                  <p>Fecha: {fechaActual}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -123,9 +157,18 @@ export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: Generar
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cerrar
           </Button>
-          <Button>
-            <DownloadIcon className="h-4 w-4 mr-2" />
-            Exportar PDF
+          <Button onClick={handleExportPDF} disabled={isExporting}>
+            {isExporting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Generando PDF...
+              </>
+            ) : (
+              <>
+                <DownloadIcon className="h-4 w-4 mr-2" />
+                Exportar PDF
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -133,9 +176,25 @@ export function GenerarDocumentoDialog({ open, onOpenChange, prestamo }: Generar
   )
 }
 
+// Función auxiliar para convertir el número de cuotas a palabras
+function convertirCuotasAPalabras(numero: number): string {
+  const numeros = [
+    '', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez',
+    'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte',
+    'veintiuna', 'veintidós', 'veintitrés', 'veinticuatro', 'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve', 'treinta',
+    'treinta y una', 'treinta y dos', 'treinta y tres', 'treinta y cuatro', 'treinta y cinco', 'treinta y seis', 'treinta y siete', 'treinta y ocho', 'treinta y nueve', 'cuarenta',
+    'cuarenta y una', 'cuarenta y dos', 'cuarenta y tres', 'cuarenta y cuatro', 'cuarenta y cinco', 'cuarenta y seis', 'cuarenta y siete', 'cuarenta y ocho'
+  ]
+
+  if (numero <= 48) {
+    return numeros[numero]
+  }
+  return numero.toString() // Para números mayores a 48, usar el número
+}
+
 // Función auxiliar para convertir números a letras (implementación mejorada)
 function convertirNumeroALetras(numero: number): string {
-  if (numero === 0) return "cero pesos";
+  if (numero === 0) return "cero pesos colombianos";
 
   const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
   const decenasEspeciales = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
@@ -209,5 +268,5 @@ function convertirNumeroALetras(numero: number): string {
     resultado = resultado.slice(0, -3) + 'un';
   }
 
-  return resultado.trim() + ' pesos';
+  return resultado.trim() + ' pesos colombianos';
 }

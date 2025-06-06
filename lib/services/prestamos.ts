@@ -83,10 +83,10 @@ export async function createPrestamo(formData: {
         .from('deudores')
         .select('*')
         .eq('cedula', formData.cedula)
-        .single();
+        .maybeSingle();
 
-    // Si hay un error diferente a 'no se encontró registro', retornamos null
-    if (deudorError && deudorError.code !== 'PGRST116') {
+    // Si hay un error, retornamos null
+    if (deudorError) {
         console.error('Error checking deudor existence:', deudorError);
         return null;
     }
@@ -138,14 +138,10 @@ export async function createPrestamo(formData: {
 
     // Crear las cuotas
     const cuotasToInsert = formData.tablaAmortizacion.map((cuota) => {
-        // Calcular la fecha de vencimiento para cada cuota
-        const fechaInicio = new Date(formData.fecha_inicio);
-        const fechaVencimiento = addMonths(fechaInicio, cuota.numero);
-
         return {
             prestamo_id: nuevoPrestamo.id,
             numero: cuota.numero,
-            fecha_vencimiento: format(fechaVencimiento, 'yyyy-MM-dd'),
+            fecha_vencimiento: cuota.fecha_vencimiento,
             valor: cuota.valor,
             interes: cuota.interes,
             abono_capital: cuota.abono_capital,

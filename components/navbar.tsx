@@ -1,3 +1,5 @@
+"use client"
+
 import Link from "next/link"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Button } from "@/components/ui/button"
@@ -11,8 +13,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ConfiguracionDialog } from "@/components/configuracion-dialog"
+import { useState } from "react"
 
 export function Navbar() {
+  const [configDialogOpen, setConfigDialogOpen] = useState(false)
+
   return (
     <header className="border-b">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -65,7 +71,7 @@ export function Navbar() {
                   <UserCircleIcon className="mr-2 h-4 w-4" />
                   <span>Perfil</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setConfigDialogOpen(true)}>
                   <SettingsIcon className="mr-2 h-4 w-4" />
                   <span>Configuración</span>
                 </DropdownMenuItem>
@@ -86,6 +92,11 @@ export function Navbar() {
           <ModeToggle />
         </div>
       </div>
+
+      <ConfiguracionDialog
+        open={configDialogOpen}
+        onOpenChange={setConfigDialogOpen}
+      />
     </header>
   )
 }

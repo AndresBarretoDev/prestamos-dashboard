@@ -20,6 +20,8 @@ import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { getPrestamo, updatePrestamo, markCuotaPagada, updatePrestamoConNuevaAmortizacion, registrarAbonoCapital, getAbonosCapital } from "@/lib/services/prestamos"
 import { ArrowLeftIcon, FileEditIcon, FileTextIcon, DownloadIcon, CheckCircleIcon, BellIcon } from "lucide-react"
+import { exportToPDF, generatePagareFilename } from "@/lib/utils/pdf-export"
+import { toast } from "sonner"
 
 interface PrestamoDetailProps {
     id: string
@@ -35,6 +37,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
     const [confirmarPagoDialogOpen, setConfirmarPagoDialogOpen] = useState(false)
     const [abonos, setAbonos] = useState<any[]>([])
     const [isAbonoDialogOpen, setIsAbonoDialogOpen] = useState(false)
+    const [isExportingTable, setIsExportingTable] = useState(false)
 
     const fetchPrestamo = async () => {
         setLoading(true)
@@ -164,6 +167,38 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
             throw error; // Relanzar el error para que pueda ser manejado en el componente del diálogo
         }
     };
+
+    const handleExportarTabla = async () => {
+        if (!prestamo) {
+            toast.error("No hay información de préstamo disponible")
+            return
+        }
+
+        const tablaElement = document.querySelector('[data-tabla-amortizacion]') as HTMLElement
+        if (!tablaElement) {
+            toast.error("No se encontró la tabla para exportar")
+            return
+        }
+
+        setIsExportingTable(true)
+
+        try {
+            const filename = `tabla_amortizacion_${prestamo.id}_${prestamo.deudor.nombre.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`
+            await exportToPDF({
+                element: tablaElement,
+                filename,
+                format: 'a4',
+                orientation: 'landscape'
+            })
+
+            toast.success("Tabla exportada exitosamente")
+        } catch (error) {
+            console.error("Error al exportar tabla:", error)
+            toast.error("Error al exportar la tabla. Por favor, intenta nuevamente.")
+        } finally {
+            setIsExportingTable(false)
+        }
+    }
 
     if (loading) {
         return <SkeletonDetallePrestamo />
@@ -311,9 +346,18 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                 <Button variant="outline" onClick={() => setIsAbonoDialogOpen(true)}>
                     Registrar Abono a Capital
                 </Button>
-                <Button variant="outline">
-                    <DownloadIcon className="h-4 w-4 mr-2" />
-                    Exportar tabla
+                <Button variant="outline" onClick={handleExportarTabla} disabled={isExportingTable}>
+                    {isExportingTable ? (
+                        <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900 mr-2"></div>
+                            Exportando...
+                        </>
+                    ) : (
+                        <>
+                            <DownloadIcon className="h-4 w-4 mr-2" />
+                            Exportar tabla
+                        </>
+                    )}
                 </Button>
             </div>
 
@@ -321,7 +365,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                 <CardHeader>
                     <CardTitle>Tabla de amortización</CardTitle>
                 </CardHeader>
-                <CardContent className="overflow-x-auto">
+                <CardContent className="overflow-x-auto" data-tabla-amortizacion>
                     <TablaAmortizacion cuotas={prestamo.tablaAmortizacion} cuotasPagadas={prestamo.cuotasPagadas || 0} />
                 </CardContent>
             </Card>
