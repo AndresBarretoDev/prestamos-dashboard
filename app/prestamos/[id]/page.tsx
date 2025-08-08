@@ -7,7 +7,7 @@ import { AuthGuard } from "@/components/auth/auth-guard"
 export default async function PrestamoPage({ params }: { params: { id: string } }) {
   const { id } = await params
   return (
-    <AuthGuard requireAdmin={true}>
+    <AuthGuard requireOwnership={true} prestamoId={id}>
       <Suspense fallback={<SkeletonDetallePrestamo />}>
         <PrestamoDetail id={id} />
       </Suspense>

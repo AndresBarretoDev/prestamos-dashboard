@@ -7,9 +7,11 @@ import { createClient } from "@/lib/supabase/client"
 interface AuthGuardProps {
   children: React.ReactNode
   requireAdmin?: boolean
+  requireOwnership?: boolean
+  prestamoId?: string
 }
 
-export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
+export function AuthGuard({ children, requireAdmin = false, requireOwnership = false, prestamoId }: AuthGuardProps) {
   const router = useRouter()
   const [ready, setReady] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -20,10 +22,10 @@ export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
     const checkAuth = async () => {
       try {
         const supabase = createClient()
-        
+
         // Obtener sesión actual
         const { data: { session }, error } = await supabase.auth.getSession()
-        
+
         if (cancelled) return
 
         if (error) {
@@ -43,6 +45,48 @@ export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
           const adminEmail = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL
           if (adminEmail && session.user.email !== adminEmail) {
             console.log("Usuario no es admin:", session.user.email)
+            router.replace("/auth/login")
+            return
+          }
+        }
+
+        // Si requiere propiedad de préstamo, verificar que el usuario sea dueño
+        if (requireOwnership && prestamoId) {
+          try {
+            // Verificar si el usuario es admin (los admins pueden ver todos los préstamos)
+            const adminEmail = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL
+            const isAdmin = adminEmail && session.user.email === adminEmail
+
+            if (!isAdmin) {
+              // Verificar que el préstamo pertenece al usuario
+              const { data: deudor, error: deudorError } = await supabase
+                .from('deudores')
+                .select('id')
+                .eq('user_id', session.user.id)
+                .single()
+
+              if (deudorError || !deudor) {
+                console.log("Usuario no tiene deudor asociado")
+                router.replace("/auth/login")
+                return
+              }
+
+              // Verificar que el préstamo pertenece al deudor del usuario
+              const { data: prestamo, error: prestamoError } = await supabase
+                .from('prestamos')
+                .select('id')
+                .eq('id', prestamoId)
+                .eq('deudor_id', deudor.id)
+                .single()
+
+              if (prestamoError || !prestamo) {
+                console.log("Usuario no tiene acceso a este préstamo")
+                router.replace("/auth/login")
+                return
+              }
+            }
+          } catch (error) {
+            console.error("Error verificando propiedad de préstamo:", error)
             router.replace("/auth/login")
             return
           }
@@ -86,6 +130,42 @@ export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
           }
         }
 
+        // Re-verificar propiedad de préstamo si es necesario
+        if (requireOwnership && prestamoId) {
+          try {
+            const adminEmail = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL
+            const isAdmin = adminEmail && session.user.email === adminEmail
+
+            if (!isAdmin) {
+              const { data: deudor, error: deudorError } = await supabase
+                .from('deudores')
+                .select('id')
+                .eq('user_id', session.user.id)
+                .single()
+
+              if (deudorError || !deudor) {
+                router.replace("/auth/login")
+                return
+              }
+
+              const { data: prestamo, error: prestamoError } = await supabase
+                .from('prestamos')
+                .select('id')
+                .eq('id', prestamoId)
+                .eq('deudor_id', deudor.id)
+                .single()
+
+              if (prestamoError || !prestamo) {
+                router.replace("/auth/login")
+                return
+              }
+            }
+          } catch (error) {
+            router.replace("/auth/login")
+            return
+          }
+        }
+
         if (!cancelled) {
           setReady(true)
         }
@@ -96,7 +176,7 @@ export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
       cancelled = true
       subscription?.unsubscribe()
     }
-  }, [router, requireAdmin])
+  }, [router, requireAdmin, requireOwnership, prestamoId])
 
   // Mostrar loading mientras verifica
   if (loading) {

@@ -14,6 +14,7 @@ import { NotificacionDialog } from "@/components/notificacion-dialog"
 import { ConfirmarPagoDialog } from "@/components/confirmar-pago-dialog"
 import { AbonoCapitalDialog } from "@/components/abono-capital-dialog"
 import { HistorialAbonos } from "@/components/historial-abonos"
+import { useSession } from "@/hooks/use-session"
 import type { Prestamo } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
 import { format } from "date-fns"
@@ -29,6 +30,7 @@ interface PrestamoDetailProps {
 
 export default function PrestamoDetail({ id }: PrestamoDetailProps) {
     const router = useRouter()
+    const { user } = useSession()
     const [prestamo, setPrestamo] = useState<Prestamo | null>(null)
     const [loading, setLoading] = useState(true)
     const [editarDialogOpen, setEditarDialogOpen] = useState(false)
@@ -38,6 +40,9 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
     const [abonos, setAbonos] = useState<any[]>([])
     const [isAbonoDialogOpen, setIsAbonoDialogOpen] = useState(false)
     const [isExportingTable, setIsExportingTable] = useState(false)
+
+    // Verificar si el usuario es admin
+    const isAdmin = user?.email === process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL
 
     const fetchPrestamo = async () => {
         setLoading(true)
@@ -230,10 +235,16 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
     return (
         <div className="container mx-auto p-4">
             <div className="flex items-center mb-6">
-                <Button variant="ghost" onClick={() => router.push("/")} className="mr-4">
-                    <ArrowLeftIcon className="h-4 w-4 mr-2" />
-                    Volver
-                </Button>
+                {
+                    isAdmin && (
+                        <Button variant="ghost" onClick={() => router.push("/")} className="mr-4">
+                            <ArrowLeftIcon className="h-4 w-4 mr-2" />
+                            Volver
+                        </Button>
+                    )
+
+                }
+
                 <h1 className="text-2xl font-bold">Detalle del préstamo</h1>
             </div>
 
@@ -283,12 +294,14 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                             <p className="font-medium">Fecha de inicio:</p>
                             <p>{prestamo.fecha_inicio}</p>
                         </div>
-                        <div>
-                            <p className="font-medium">Ganancia total:</p>
-                            <p className="text-green-600 dark:text-green-400 font-semibold">
-                                {formatCurrency(prestamo.tablaAmortizacion.reduce((total, cuota) => total + cuota.interes, 0))}
-                            </p>
-                        </div>
+                        {isAdmin && (
+                            <div>
+                                <p className="font-medium">Ganancia total:</p>
+                                <p className="text-green-600 dark:text-green-400 font-semibold">
+                                    {formatCurrency(prestamo.tablaAmortizacion.reduce((total, cuota) => total + cuota.interes, 0))}
+                                </p>
+                            </div>
+                        )}
                         <div>
                             <p className="font-medium">Total a pagar:</p>
                             <p>{formatCurrency(prestamo.monto + prestamo.tablaAmortizacion.reduce((total, cuota) => total + cuota.interes, 0))}</p>
@@ -323,43 +336,45 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                 </Card>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
-                <Button
-                    onClick={handleMarcarPagado}
-                    disabled={prestamo.estado === "pagado" || (prestamo.cuotasPagadas || 0) >= prestamo.cuotas}
-                >
-                    <CheckCircleIcon className="h-4 w-4 mr-2" />
-                    Marcar cuota como pagada
-                </Button>
-                <Button variant="outline" onClick={() => setEditarDialogOpen(true)}>
-                    <FileEditIcon className="h-4 w-4 mr-2" />
-                    Editar préstamo
-                </Button>
-                <Button variant="outline" onClick={() => setDocumentoDialogOpen(true)}>
-                    <FileTextIcon className="h-4 w-4 mr-2" />
-                    Generar documento
-                </Button>
-                <Button variant="outline" onClick={() => setNotificacionDialogOpen(true)}>
-                    <BellIcon className="h-4 w-4 mr-2" />
-                    Configurar recordatorio
-                </Button>
-                <Button variant="outline" onClick={() => setIsAbonoDialogOpen(true)}>
-                    Registrar Abono a Capital
-                </Button>
-                <Button variant="outline" onClick={handleExportarTabla} disabled={isExportingTable}>
-                    {isExportingTable ? (
-                        <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900 mr-2"></div>
-                            Exportando...
-                        </>
-                    ) : (
-                        <>
-                            <DownloadIcon className="h-4 w-4 mr-2" />
-                            Exportar tabla
-                        </>
-                    )}
-                </Button>
-            </div>
+            {isAdmin && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                    <Button
+                        onClick={handleMarcarPagado}
+                        disabled={prestamo.estado === "pagado" || (prestamo.cuotasPagadas || 0) >= prestamo.cuotas}
+                    >
+                        <CheckCircleIcon className="h-4 w-4 mr-2" />
+                        Marcar cuota como pagada
+                    </Button>
+                    <Button variant="outline" onClick={() => setEditarDialogOpen(true)}>
+                        <FileEditIcon className="h-4 w-4 mr-2" />
+                        Editar préstamo
+                    </Button>
+                    <Button variant="outline" onClick={() => setDocumentoDialogOpen(true)}>
+                        <FileTextIcon className="h-4 w-4 mr-2" />
+                        Generar documento
+                    </Button>
+                    <Button variant="outline" onClick={() => setNotificacionDialogOpen(true)}>
+                        <BellIcon className="h-4 w-4 mr-2" />
+                        Configurar recordatorio
+                    </Button>
+                    <Button variant="outline" onClick={() => setIsAbonoDialogOpen(true)}>
+                        Registrar Abono a Capital
+                    </Button>
+                    <Button variant="outline" onClick={handleExportarTabla} disabled={isExportingTable}>
+                        {isExportingTable ? (
+                            <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900 mr-2"></div>
+                                Exportando...
+                            </>
+                        ) : (
+                            <>
+                                <DownloadIcon className="h-4 w-4 mr-2" />
+                                Exportar tabla
+                            </>
+                        )}
+                    </Button>
+                </div>
+            )}
 
             <Card className="mb-6">
                 <CardHeader>
@@ -370,14 +385,16 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Historial de Abonos a Capital</CardTitle>
-                </CardHeader>
-                <CardContent className="overflow-x-auto">
-                    <HistorialAbonos abonos={abonos} />
-                </CardContent>
-            </Card>
+            {isAdmin && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Historial de Abonos a Capital</CardTitle>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                        <HistorialAbonos abonos={abonos} />
+                    </CardContent>
+                </Card>
+            )}
 
             <EditarPrestamoDialog
                 open={editarDialogOpen}

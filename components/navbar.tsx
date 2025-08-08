@@ -106,6 +106,8 @@ export function Navbar() {
             <BellIcon className="h-5 w-5" />
             <span className="sr-only">Notificaciones</span>
           </Button>
+          <ModeToggle />
+
 
           {session ? (
             // Usuario autenticado
@@ -156,7 +158,6 @@ export function Navbar() {
             </Button>
           )}
 
-          <ModeToggle />
         </div>
       </div>
 

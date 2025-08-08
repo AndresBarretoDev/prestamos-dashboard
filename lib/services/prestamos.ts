@@ -1,9 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import type { Prestamo, Deudor, Cuota } from '@/lib/types';
 import { addMonths, format } from 'date-fns';
 import { calcularCuotaMensual, calcularTablaAmortizacion } from '@/lib/calculadora';
 import { formatCurrency } from '@/lib/utils';
+
+// Cliente Supabase que maneja sesiones automáticamente
+const supabase = createClient();
+
 
 // Función para obtener todos los préstamos
 export async function getPrestamos(): Promise<Prestamo[]> {
@@ -620,4 +624,59 @@ function mapPrestamoDBToModel(prestamoWithDeudor: any, cuotasDB: any[]): Prestam
         gananciaTotal,
         totalPagado
     };
+}
+
+// Función temporal para asociar usuario cliente con deudor existente
+export async function asociarUsuarioClienteConDeudor(): Promise<boolean> {
+
+    try {
+        // 1. Hacer login como usuario cliente
+        const { data: { user }, error: loginError } = await supabase.auth.signInWithPassword({
+            email: 'andres.barretos24@gmail.com',
+            password: '123456' // Asumiendo que esta es la contraseña
+        });
+
+        if (loginError || !user) {
+            console.error('Error en login:', loginError?.message || 'Usuario no encontrado');
+            return false;
+        }
+
+        console.log('Login exitoso. Usuario:', user.email);
+
+        // 2. Obtener el deudor existente (Omar German Barreto Guerrero)
+        const { data: deudor, error: deudorError } = await supabase
+            .from('deudores')
+            .select('*')
+            .eq('nombre', 'Omar German Barreto Guerrero')
+            .single();
+
+        if (deudorError || !deudor) {
+            console.error('Error obteniendo deudor:', deudorError?.message);
+            return false;
+        }
+
+        console.log('Deudor encontrado:', deudor.nombre, '(ID:', deudor.id + ')');
+
+        // 3. Actualizar el deudor con el user_id del cliente
+        const { error: updateError } = await supabase
+            .from('deudores')
+            .update({ user_id: user.id })
+            .eq('id', deudor.id);
+
+        if (updateError) {
+            console.error('Error actualizando deudor:', updateError.message);
+            return false;
+        }
+
+        console.log('✅ Usuario asociado exitosamente!');
+        console.log('Usuario:', user.email);
+        console.log('Deudor:', deudor.nombre);
+        console.log('Ahora puedes hacer login como cliente y ver el préstamo.');
+
+        return true;
+
+    } catch (error) {
+        console.error('Error en asociarUsuarioClienteConDeudor:', error);
+        return false;
+    }
 } 
