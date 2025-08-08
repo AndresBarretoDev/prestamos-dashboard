@@ -26,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning className={dmSans.variable}>
-      <body className="font-dm-sans">
+      <body className="font-dm-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           {children}
           <UIToaster />
@@ -36,6 +36,3 @@ export default function RootLayout({
     </html>
   )
 }
-
-
-import './globals.css'

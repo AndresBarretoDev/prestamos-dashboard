@@ -33,8 +33,10 @@ export function calcularTablaAmortizacion(
   // Saldo inicial
   let saldoRestante = monto
 
-  // Fecha de inicio como Date
-  const fechaInicioDate = new Date(fechaInicio)
+  // Crear fecha de inicio como fecha local (no UTC) para evitar problemas de zona horaria
+  // Parseamos manualmente la fecha en formato yyyy-MM-dd para mantener el día exacto
+  const [year, month, day] = fechaInicio.split('-').map(Number)
+  const fechaInicioDate = new Date(year, month - 1, day) // month - 1 porque Date usa índices basados en 0 para meses
 
   // Calcular cada cuota
   for (let numero = 1; numero <= plazoMeses; numero++) {
@@ -52,7 +54,7 @@ export function calcularTablaAmortizacion(
       saldoRestante = 0
     }
 
-    // Calcular fecha de vencimiento
+    // Calcular fecha de vencimiento sumando meses a la fecha de inicio
     const fechaVencimiento = addMonths(fechaInicioDate, numero)
 
     // Agregar cuota a la tabla

@@ -16,8 +16,8 @@ export const prestamoSchema = z.object({
     // Cédula: obligatorio, exactamente 10 dígitos numéricos
     cedula: z
         .string()
-        .regex(/^\d{10}$/, {
-            message: "La cédula debe contener exactamente 10 dígitos numéricos"
+        .regex(/^\d{7,10}$/, {
+            message: "La cédula debe ser un número válido"
         }),
 
     // Ciudad: obligatorio, debe ser una de las ciudades disponibles

@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Estilos para impresión */
+@media print {
+  .print\:border-0 {
+    border: none !important;
+  }
+
+  .print\:rounded-none {
+    border-radius: 0 !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
