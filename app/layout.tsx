@@ -5,7 +5,6 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster as UIToaster } from "@/components/ui/toaster"
 import { Toaster } from "@/components/ui/sonner"
-import { StagewiseToolbar } from "@stagewise/toolbar-next"
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -20,10 +19,6 @@ export const metadata: Metadata = {
   generator: 'v0.dev'
 }
 
-const stagewiseConfig = {
-  plugins: []
-};
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -36,9 +31,6 @@ export default function RootLayout({
           {children}
           <UIToaster />
           <Toaster />
-          {process.env.NODE_ENV === 'development' && (
-            <StagewiseToolbar config={stagewiseConfig} />
-          )}
         </ThemeProvider>
       </body>
     </html>
