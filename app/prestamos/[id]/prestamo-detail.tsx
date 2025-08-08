@@ -20,9 +20,10 @@ import { formatCurrency } from "@/lib/utils"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { getPrestamo, updatePrestamo, markCuotaPagada, updatePrestamoConNuevaAmortizacion, registrarAbonoCapital, getAbonosCapital } from "@/lib/services/prestamos"
-import { ArrowLeftIcon, FileEditIcon, FileTextIcon, DownloadIcon, CheckCircleIcon, BellIcon } from "lucide-react"
+import { ArrowLeftIcon, FileEditIcon, FileTextIcon, DownloadIcon, CheckCircleIcon, BellIcon, ShareIcon, CopyIcon } from "lucide-react"
 import { exportToPDF, generatePagareFilename } from "@/lib/utils/pdf-export"
 import { toast } from "sonner"
+import { generateShareableUrl } from "@/lib/utils/share"
 
 interface PrestamoDetailProps {
     id: string
@@ -173,6 +174,25 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
         }
     };
 
+    const handleCompartirPrestamo = async () => {
+        if (!prestamo) return;
+
+        try {
+            const shareableUrl = generateShareableUrl(prestamo.id);
+
+            // Directamente copiar al portapapeles (más confiable)
+            await navigator.clipboard.writeText(shareableUrl);
+            toast.success("URL copiada al portapapeles exitosamente");
+        } catch (error) {
+            console.error("Error compartiendo:", error);
+            // Fallback: mostrar la URL para copiar manualmente
+            const shareableUrl = generateShareableUrl(prestamo.id);
+            toast.success(`URL copiada: ${shareableUrl}`, {
+                duration: 8000, // Mostrar por más tiempo para que pueda copiar
+            });
+        }
+    };
+
     const handleExportarTabla = async () => {
         if (!prestamo) {
             toast.error("No hay información de préstamo disponible")
@@ -234,18 +254,25 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
 
     return (
         <div className="container mx-auto p-4">
-            <div className="flex items-center mb-6">
-                {
-                    isAdmin && (
-                        <Button variant="ghost" onClick={() => router.push("/")} className="mr-4">
-                            <ArrowLeftIcon className="h-4 w-4 mr-2" />
-                            Volver
-                        </Button>
-                    )
+            <div className="flex md:items-center mb-6 gap-4 justify-between flex-col md:flex-row">
 
-                }
+                <div className="flex items-center gap-4">
+                    {
+                        isAdmin && (
+                            <Button variant="ghost" onClick={() => router.push("/")} className="mr-4">
+                                <ArrowLeftIcon className="h-4 w-4 mr-2" />
+                                Volver
+                            </Button>
+                        )
 
-                <h1 className="text-2xl font-bold">Detalle del préstamo</h1>
+                    }
+
+                    <h1 className="text-base md:text-2xl font-bold">Detalle del préstamo</h1>
+                </div>
+                <Button variant="outline" onClick={handleCompartirPrestamo} className="bg-blue-500 text-white">
+                    <ShareIcon className="h-4 w-4 mr-2" />
+                    Compartir préstamo
+                </Button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -357,6 +384,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                         <BellIcon className="h-4 w-4 mr-2" />
                         Configurar recordatorio
                     </Button>
+
                     <Button variant="outline" onClick={() => setIsAbonoDialogOpen(true)}>
                         Registrar Abono a Capital
                     </Button>
@@ -376,11 +404,11 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                 </div>
             )}
 
-            <Card className="mb-6">
-                <CardHeader>
+            <Card className="mb-6 border-none">
+                <CardHeader className="hidden">
                     <CardTitle>Tabla de amortización</CardTitle>
                 </CardHeader>
-                <CardContent className="overflow-x-auto" data-tabla-amortizacion>
+                <CardContent className="overflow-x-auto pt-4" data-tabla-amortizacion>
                     <TablaAmortizacion cuotas={prestamo.tablaAmortizacion} cuotasPagadas={prestamo.cuotasPagadas || 0} />
                 </CardContent>
             </Card>
