@@ -21,13 +21,16 @@ export default function PublicPrestamoView({ prestamo }: PublicPrestamoViewProps
     const totalPagado = prestamo.tablaAmortizacion
         .filter(c => c.estado === 'pagada')
         .reduce((total, cuota: any) => {
+            // Usar el valor pagado real si existe, sino usar el valor de la cuota
             const valorReal = cuota.valor_pagado_real || cuota.valor
-            return total + parseFloat(valorReal)
+            return total + (valorReal || 0)
         }, 0)
+
+
 
     const saldoPendiente = prestamo.tablaAmortizacion
         .filter(c => c.estado === 'pendiente')
-        .reduce((total, cuota) => total + cuota.valor, 0)
+        .reduce((total, cuota) => total + (cuota.valor || 0), 0)
 
     // Calcular total de abonos adicionales
     const totalAbonosAdicionales = prestamo.tablaAmortizacion

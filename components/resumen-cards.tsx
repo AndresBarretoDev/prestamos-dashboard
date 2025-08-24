@@ -12,8 +12,9 @@ export function ResumenCards({ prestamos }: ResumenCardsProps) {
   const totalPrestado = prestamos.reduce((sum, p) => sum + p.monto, 0)
 
   const totalRecuperado = prestamos.reduce((sum, p) => {
-    const cuotasPagadas = p.cuotasPagadas || 0
-    return sum + p.cuota_mensual * cuotasPagadas
+    return sum + p.tablaAmortizacion
+      .filter(cuota => cuota.estado === 'pagada')
+      .reduce((total, cuota) => total + cuota.valor, 0)
   }, 0)
 
   const prestamosActivos = prestamos.filter((p) => p.estado === "activo").length
@@ -21,8 +22,9 @@ export function ResumenCards({ prestamos }: ResumenCardsProps) {
   const totalMora = prestamos
     .filter((p) => p.estado === "vencido")
     .reduce((sum, p) => {
-      const cuotasPendientes = p.cuotas - (p.cuotasPagadas || 0)
-      return sum + p.cuota_mensual * cuotasPendientes
+      return sum + p.tablaAmortizacion
+        .filter(cuota => cuota.estado === 'pendiente')
+        .reduce((total, cuota) => total + cuota.valor, 0)
     }, 0)
 
   return (

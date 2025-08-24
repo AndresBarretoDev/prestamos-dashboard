@@ -45,7 +45,7 @@ export function AbonoCapitalDialog({
 
     const saldoPendiente = prestamo.tablaAmortizacion
         .filter(cuota => cuota.estado === 'pendiente')
-        .reduce((sum, cuota) => sum + cuota.abono_capital, 0)
+        .reduce((sum, cuota) => sum + cuota.valor, 0)
 
     const handleSubmit = async () => {
         try {

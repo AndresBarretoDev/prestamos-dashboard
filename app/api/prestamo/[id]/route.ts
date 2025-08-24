@@ -59,12 +59,15 @@ export async function GET(
         const cuotasConPagos = cuotasData?.map(cuota => {
             const pagoReal = cuota.pagos?.[0] // Asumir un pago por cuota
 
-            // Buscar abono del mismo día que el pago de la cuota
-            // Simplificar: para la cuota 1, sabemos que hay un abono el mismo día
-            let abonoRelacionado = null
-            if (cuota.estado === 'pagada' && cuota.numero === 1 && abonosData?.length > 0) {
-                abonoRelacionado = abonosData[0] // El primer abono es para la cuota 1
-            }
+                  // Buscar abono del mismo día que el pago de la cuota (para cualquier cuota)
+      const abonoRelacionado = cuota.estado === 'pagada' && cuota.pagado_en && abonosData
+        ? abonosData.find(abono => {
+            // Comparar solo las fechas (sin hora) usando toISOString().split('T')[0]
+            const fechaCuota = new Date(cuota.pagado_en).toISOString().split('T')[0]
+            const fechaAbono = new Date(abono.fecha_abono).toISOString().split('T')[0]
+            return fechaCuota === fechaAbono
+          })
+        : null
 
             return {
                 ...cuota,

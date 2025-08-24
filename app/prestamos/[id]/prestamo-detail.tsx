@@ -19,7 +19,7 @@ import type { Prestamo } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { getPrestamo, updatePrestamo, markCuotaPagada, updatePrestamoConNuevaAmortizacion, registrarAbonoCapital, getAbonosCapital } from "@/lib/services/prestamos"
+import { getPrestamo, getPrestamoCompleto, updatePrestamo, markCuotaPagada, updatePrestamoConNuevaAmortizacion, registrarAbonoCapital, getAbonosCapital } from "@/lib/services/prestamos"
 import { ArrowLeftIcon, FileEditIcon, FileTextIcon, DownloadIcon, CheckCircleIcon, BellIcon, ShareIcon, CopyIcon } from "lucide-react"
 import { exportToPDF, generatePagareFilename } from "@/lib/utils/pdf-export"
 import { toast } from "sonner"
@@ -48,7 +48,9 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
     const fetchPrestamo = async () => {
         setLoading(true)
         try {
-            const data = await getPrestamo(id)
+            // Usar la función que incluye datos completos
+            const data = await getPrestamoCompleto(id)
+
             if (data) {
                 setPrestamo(data)
                 const abonosData = await getAbonosCapital(data.id)
@@ -357,7 +359,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                         </div>
                         <div>
                             <p className="font-medium">Saldo pendiente:</p>
-                            <p>{formatCurrency(prestamo.monto - (prestamo.cuotasPagadas || 0) * prestamo.cuota_mensual)}</p>
+                            <p>{formatCurrency(prestamo.tablaAmortizacion.filter(c => c.estado === 'pendiente').reduce((total, cuota) => total + cuota.valor, 0))}</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -401,6 +403,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                             </>
                         )}
                     </Button>
+
                 </div>
             )}
 
@@ -409,7 +412,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                     <CardTitle>Tabla de amortización</CardTitle>
                 </CardHeader>
                 <CardContent className="overflow-x-auto pt-4" data-tabla-amortizacion>
-                    <TablaAmortizacion cuotas={prestamo.tablaAmortizacion} cuotasPagadas={prestamo.cuotasPagadas || 0} />
+                    <TablaAmortizacion tablaAmortizacion={prestamo.tablaAmortizacion} cuotasPagadas={prestamo.cuotasPagadas || 0} />
                 </CardContent>
             </Card>
 

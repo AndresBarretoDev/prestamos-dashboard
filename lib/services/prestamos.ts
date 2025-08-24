@@ -21,12 +21,20 @@ export async function getPrestamos(): Promise<Prestamo[]> {
         return [];
     }
 
-    // Para cada préstamo, obtenemos sus cuotas
+    // Para cada préstamo, obtenemos sus cuotas con pagos y abonos
     const prestamosWithCuotas = await Promise.all(
         prestamosData.map(async (prestamoWithDeudor) => {
+            // Obtener cuotas con pagos
             const { data: cuotasData, error: cuotasError } = await supabase
                 .from('cuotas')
-                .select('*')
+                .select(`
+                    *,
+                    pagos (
+                        valor_pagado,
+                        fecha_pago,
+                        observacion
+                    )
+                `)
                 .eq('prestamo_id', prestamoWithDeudor.id)
                 .order('numero', { ascending: true });
 
@@ -35,14 +43,50 @@ export async function getPrestamos(): Promise<Prestamo[]> {
                 return mapPrestamoDBToModel(prestamoWithDeudor, []);
             }
 
-            return mapPrestamoDBToModel(prestamoWithDeudor, cuotasData || []);
+            // Obtener abonos a capital
+            const { data: abonosData, error: abonosError } = await supabase
+                .from('abonos_capital')
+                .select('*')
+                .eq('prestamo_id', prestamoWithDeudor.id)
+                .order('fecha_abono', { ascending: true });
+
+            if (abonosError) {
+                console.error('Error obteniendo abonos:', abonosError);
+            }
+
+            // Mapear las cuotas incluyendo pagos reales y abonos
+            const cuotasConPagos = cuotasData?.map(cuota => {
+                const pagoReal = cuota.pagos?.[0];
+
+                const abonoRelacionado = cuota.estado === 'pagada' && cuota.pagado_en && abonosData
+                    ? abonosData.find(abono => {
+                        const fechaCuota = new Date(cuota.pagado_en).toISOString().split('T')[0];
+                        const fechaAbono = new Date(abono.fecha_abono).toISOString().split('T')[0];
+                        return fechaCuota === fechaAbono;
+                    })
+                    : null;
+
+                return {
+                    ...cuota,
+                    valor_pagado_real: pagoReal?.valor_pagado || null,
+                    fecha_pago_real: pagoReal?.fecha_pago || null,
+                    observacion_pago: pagoReal?.observacion || null,
+                    abono_adicional: abonoRelacionado?.monto || null,
+                    observacion_abono: abonoRelacionado?.observaciones || null,
+                    total_pagado: pagoReal?.valor_pagado
+                        ? (parseFloat(pagoReal.valor_pagado) + parseFloat(abonoRelacionado?.monto || '0'))
+                        : null
+                };
+            }) || [];
+
+            return mapPrestamoDBToModel(prestamoWithDeudor, cuotasConPagos);
         })
     );
 
     return prestamosWithCuotas;
 }
 
-// Función para obtener un préstamo por su ID
+// Función para obtener un préstamo por su ID (versión simple)
 export async function getPrestamo(id: string): Promise<Prestamo | null> {
     const { data, error } = await supabase
         .from('prestamos')
@@ -55,9 +99,17 @@ export async function getPrestamo(id: string): Promise<Prestamo | null> {
         return null;
     }
 
+    // Obtener las cuotas con sus pagos reales
     const { data: cuotasData, error: cuotasError } = await supabase
         .from('cuotas')
-        .select('*')
+        .select(`
+            *,
+            pagos (
+                valor_pagado,
+                fecha_pago,
+                observacion
+            )
+        `)
         .eq('prestamo_id', id)
         .order('numero', { ascending: true });
 
@@ -66,7 +118,113 @@ export async function getPrestamo(id: string): Promise<Prestamo | null> {
         return mapPrestamoDBToModel(data, []);
     }
 
-    return mapPrestamoDBToModel(data, cuotasData || []);
+    // Obtener abonos a capital
+    const { data: abonosData, error: abonosError } = await supabase
+        .from('abonos_capital')
+        .select('*')
+        .eq('prestamo_id', id)
+        .order('fecha_abono', { ascending: true });
+
+    if (abonosError) {
+        console.error('Error obteniendo abonos:', abonosError);
+    }
+
+    // Mapear las cuotas incluyendo pagos reales y abonos
+    const cuotasConPagos = cuotasData?.map(cuota => {
+        const pagoReal = cuota.pagos?.[0]; // Asumir un pago por cuota
+
+        // Buscar abono del mismo día que el pago de la cuota
+        const abonoRelacionado = cuota.estado === 'pagada' && cuota.pagado_en && abonosData
+            ? abonosData.find(abono => {
+                const fechaCuota = new Date(cuota.pagado_en).toISOString().split('T')[0];
+                const fechaAbono = new Date(abono.fecha_abono).toISOString().split('T')[0];
+                return fechaCuota === fechaAbono;
+            })
+            : null;
+
+        const cuotaConPagos = {
+            ...cuota,
+            valor_pagado_real: pagoReal?.valor_pagado || null,
+            fecha_pago_real: pagoReal?.fecha_pago || null,
+            observacion_pago: pagoReal?.observacion || null,
+            abono_adicional: abonoRelacionado?.monto || null,
+            observacion_abono: abonoRelacionado?.observaciones || null,
+            total_pagado: pagoReal?.valor_pagado
+                ? (parseFloat(pagoReal.valor_pagado) + parseFloat(abonoRelacionado?.monto || '0'))
+                : null
+        };
+
+
+
+        return cuotaConPagos;
+    }) || [];
+
+    return mapPrestamoDBToModel(data, cuotasConPagos);
+}
+
+// Función para obtener un préstamo con datos completos (incluyendo pagos y abonos)
+export async function getPrestamoCompleto(id: string): Promise<Prestamo | null> {
+    try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/prestamos?id=eq.${id}&select=*,deudores(*)`, {
+            headers: {
+                'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
+            }
+        });
+
+        if (!response.ok) return null;
+
+        const prestamoData = await response.json();
+        if (!prestamoData[0]) return null;
+
+        // Usar la misma lógica que la API pública
+        const { data: cuotasData } = await supabase
+            .from('cuotas')
+            .select(`
+                *,
+                pagos (
+                    valor_pagado,
+                    fecha_pago,
+                    observacion
+                )
+            `)
+            .eq('prestamo_id', id)
+            .order('numero', { ascending: true });
+
+        const { data: abonosData } = await supabase
+            .from('abonos_capital')
+            .select('*')
+            .eq('prestamo_id', id)
+            .order('fecha_abono', { ascending: true });
+
+        const cuotasConPagos = cuotasData?.map(cuota => {
+            const pagoReal = cuota.pagos?.[0];
+            const abonoRelacionado = cuota.estado === 'pagada' && cuota.pagado_en && abonosData
+                ? abonosData.find(abono => {
+                    const fechaCuota = new Date(cuota.pagado_en).toISOString().split('T')[0];
+                    const fechaAbono = new Date(abono.fecha_abono).toISOString().split('T')[0];
+                    return fechaCuota === fechaAbono;
+                })
+                : null;
+
+            return {
+                ...cuota,
+                valor_pagado_real: pagoReal?.valor_pagado || null,
+                fecha_pago_real: pagoReal?.fecha_pago || null,
+                observacion_pago: pagoReal?.observacion || null,
+                abono_adicional: abonoRelacionado?.monto || null,
+                observacion_abono: abonoRelacionado?.observaciones || null,
+                total_pagado: pagoReal?.valor_pagado
+                    ? (parseFloat(pagoReal.valor_pagado) + parseFloat(abonoRelacionado?.monto || '0'))
+                    : null
+            };
+        }) || [];
+
+        return mapPrestamoDBToModel(prestamoData[0], cuotasConPagos);
+    } catch (error) {
+        console.error('Error fetching prestamo completo:', error);
+        return null;
+    }
 }
 
 // Función para crear un nuevo préstamo
@@ -245,7 +403,7 @@ export async function registrarAbonoCapital(
     // Validar que el monto no exceda el saldo pendiente
     const saldoPendiente = prestamo.tablaAmortizacion
         .filter(cuota => cuota.estado === 'pendiente')
-        .reduce((sum, cuota) => sum + cuota.abono_capital, 0);
+        .reduce((sum, cuota) => sum + cuota.valor, 0);
 
     if (data.monto > saldoPendiente) {
         throw new Error('El monto del abono excede el saldo pendiente del préstamo');
@@ -357,7 +515,7 @@ export async function registrarAbonoCapital(
 
         return {
             prestamo_id: prestamoId,
-            numero: cuotasPagadas + index + 1,
+            numero: cuotasPendientesOriginales[index]?.numero || (cuotasPagadas + index + 1),
             fecha_vencimiento: fechaVencimiento,
             valor: cuota.valor,
             interes: cuota.interes,
