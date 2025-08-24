@@ -41,7 +41,6 @@ export function TablaAmortizacion({
               <TableHead className="text-right">Valor pagado</TableHead>
               <TableHead className="text-right">Interés</TableHead>
               <TableHead className="text-right">Abono capital</TableHead>
-              {!isPublicView && <TableHead className="text-right">Abono adicional</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -67,9 +66,12 @@ export function TablaAmortizacion({
               };
 
               // Verificar si hay información de pago real
-              const tieneInfoPago = (cuota as any).valor_pagado_real !== undefined
-              const valorPagadoReal = tieneInfoPago ? (cuota as any).valor_pagado_real : null
-              const abonoAdicional = tieneInfoPago ? (cuota as any).abono_adicional : null
+              const valorPagadoReal = (cuota as any).valor_pagado_real || null
+              const abonoAdicional = (cuota as any).abono_adicional || null
+
+
+
+
 
               return (
                 <TableRow key={cuota.numero}>
@@ -97,17 +99,6 @@ export function TablaAmortizacion({
                   </TableCell>
                   <TableCell className="text-right">{formatCurrency(cuota.interes)}</TableCell>
                   <TableCell className="text-right">{formatCurrency(cuota.abono_capital)}</TableCell>
-                  {!isPublicView && (
-                    <TableCell className="text-right">
-                      {abonoAdicional ? (
-                        <span className="text-green-600 font-medium">
-                          {formatCurrency(abonoAdicional)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </TableCell>
-                  )}
                 </TableRow>
               )
             })}
