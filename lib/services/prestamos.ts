@@ -799,7 +799,6 @@ export async function asociarUsuarioClienteConDeudor(): Promise<boolean> {
             return false;
         }
 
-        console.log('Login exitoso. Usuario:', user.email);
 
         // 2. Obtener el deudor existente (Omar German Barreto Guerrero)
         const { data: deudor, error: deudorError } = await supabase
@@ -813,7 +812,6 @@ export async function asociarUsuarioClienteConDeudor(): Promise<boolean> {
             return false;
         }
 
-        console.log('Deudor encontrado:', deudor.nombre, '(ID:', deudor.id + ')');
 
         // 3. Actualizar el deudor con el user_id del cliente
         const { error: updateError } = await supabase
@@ -826,10 +824,6 @@ export async function asociarUsuarioClienteConDeudor(): Promise<boolean> {
             return false;
         }
 
-        console.log('✅ Usuario asociado exitosamente!');
-        console.log('Usuario:', user.email);
-        console.log('Deudor:', deudor.nombre);
-        console.log('Ahora puedes hacer login como cliente y ver el préstamo.');
 
         return true;
 
