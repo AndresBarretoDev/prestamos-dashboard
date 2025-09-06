@@ -35,6 +35,13 @@ export interface Cuota {
   abono_capital: number
   estado: "pagada" | "pendiente" | "vencida"
   pagado_en?: string | null
+  // Campos opcionales derivados de pagos/abonos reales
+  valor_pagado_real?: number | null
+  fecha_pago_real?: string | null
+  observacion_pago?: string | null
+  abono_adicional?: number | null
+  observacion_abono?: string | null
+  total_pagado?: number | null
 }
 
 export interface Pago {

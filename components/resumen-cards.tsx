@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Prestamo } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
 import { BanknoteIcon, CalendarIcon, CircleDollarSignIcon, AlertCircleIcon } from "lucide-react"
+import { computeLoanStats } from "@/lib/utils/loan-stats"
 
 interface ResumenCardsProps {
   prestamos: Prestamo[]
@@ -11,11 +12,7 @@ export function ResumenCards({ prestamos }: ResumenCardsProps) {
   // Calcular totales
   const totalPrestado = prestamos.reduce((sum, p) => sum + p.monto, 0)
 
-  const totalRecuperado = prestamos.reduce((sum, p) => {
-    return sum + p.tablaAmortizacion
-      .filter(cuota => cuota.estado === 'pagada')
-      .reduce((total, cuota) => total + cuota.valor, 0)
-  }, 0)
+  const totalRecuperado = prestamos.reduce((sum, p) => sum + computeLoanStats(p).totalPagadoReal, 0)
 
   const prestamosActivos = prestamos.filter((p) => p.estado === "activo").length
 

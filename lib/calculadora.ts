@@ -38,19 +38,23 @@ export function calcularTablaAmortizacion(
   const [year, month, day] = fechaInicio.split('-').map(Number)
   const fechaInicioDate = new Date(year, month - 1, day) // month - 1 porque Date usa índices basados en 0 para meses
 
-  // Calcular cada cuota
+  // Calcular cada cuota, ajustando la última para cerrar redondeos
   for (let numero = 1; numero <= plazoMeses; numero++) {
     // Calcular interés para este mes
     const interesMes = saldoRestante * tasaDecimal
 
     // Calcular abono a capital
-    const abonoCapital = cuotaMensual - interesMes
+    let abonoCapital = cuotaMensual - interesMes
 
     // Actualizar saldo restante
     saldoRestante -= abonoCapital
 
     // Asegurar que el saldo no sea negativo en la última cuota
     if (numero === plazoMeses) {
+      // Ajuste final: asegurar que la suma de abonos cierre exactamente el monto
+      const sumaAbonosPrevios = tabla.reduce((acc, c) => acc + c.abono_capital, 0)
+      const abonoNecesario = Math.max(0, Math.round(monto - sumaAbonosPrevios))
+      abonoCapital = abonoNecesario
       saldoRestante = 0
     }
 
@@ -62,7 +66,7 @@ export function calcularTablaAmortizacion(
       prestamo_id: "", // Se asignará después
       numero,
       fecha_vencimiento: format(fechaVencimiento, 'yyyy-MM-dd'),
-      valor: cuotaMensual,
+      valor: Math.round(cuotaMensual),
       interes: Math.round(interesMes),
       abono_capital: Math.round(abonoCapital),
       estado: "pendiente"
