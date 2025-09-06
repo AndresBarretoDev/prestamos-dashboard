@@ -400,13 +400,14 @@ export async function registrarAbonoCapital(
     const prestamo = await getPrestamo(prestamoId);
     if (!prestamo) return null;
 
-    // Validar que el monto no exceda el saldo pendiente
-    const saldoPendiente = prestamo.tablaAmortizacion
+    // Calcular capital (principal) pendiente: suma de abonos a capital de cuotas pendientes
+    const capitalPendiente = prestamo.tablaAmortizacion
         .filter(cuota => cuota.estado === 'pendiente')
-        .reduce((sum, cuota) => sum + cuota.valor, 0);
+        .reduce((sum, cuota) => sum + cuota.abono_capital, 0);
 
-    if (data.monto > saldoPendiente) {
-        throw new Error('El monto del abono excede el saldo pendiente del préstamo');
+    // Validar que el abono no exceda el capital pendiente
+    if (data.monto > capitalPendiente) {
+        throw new Error('El monto del abono excede el capital pendiente del préstamo');
     }
 
     // Registrar el abono
@@ -425,8 +426,8 @@ export async function registrarAbonoCapital(
         return null;
     }
 
-    // Recalcular el préstamo
-    const nuevoSaldo = saldoPendiente - data.monto;
+    // Recalcular el préstamo usando capital pendiente como base
+    const nuevoSaldo = Math.max(0, capitalPendiente - data.monto);
     const cuotasPagadas = prestamo.tablaAmortizacion.filter(cuota => cuota.estado === 'pagada').length;
     const cuotasRestantes = prestamo.tablaAmortizacion.filter(cuota => cuota.estado === 'pendiente').length;
 
@@ -454,14 +455,16 @@ export async function registrarAbonoCapital(
     } else {
         // Recalcular plazo manteniendo la cuota
         const nuevaCuota = prestamo.cuota_mensual;
+        // Usar tasa mensual en decimal para validaciones y cálculo de plazo
+        const tasaDecimal = prestamo.tasa_mensual / 100;
         // Verificar que el monto restante sea suficiente para ser pagado con la cuota actual
-        if (nuevaCuota <= (nuevoSaldo * prestamo.tasa_mensual)) {
+        if (nuevaCuota <= (nuevoSaldo * tasaDecimal)) {
             throw new Error('La cuota actual es demasiado baja para cubrir el saldo restante. Elija reducir cuota en su lugar.');
         }
 
         const nuevoPlazo = Math.max(1, Math.ceil(
-            Math.log(nuevaCuota / (nuevaCuota - nuevoSaldo * prestamo.tasa_mensual)) /
-            Math.log(1 + prestamo.tasa_mensual)
+            Math.log(nuevaCuota / (nuevaCuota - nuevoSaldo * tasaDecimal)) /
+            Math.log(1 + tasaDecimal)
         ));
 
         nuevaTablaAmortizacion = calcularTablaAmortizacion(
@@ -753,7 +756,14 @@ function mapPrestamoDBToModel(prestamoWithDeudor: any, cuotasDB: any[]): Prestam
         interes: cuota.interes,
         abono_capital: cuota.abono_capital,
         estado: cuota.estado,
-        pagado_en: cuota.pagado_en || undefined
+        pagado_en: cuota.pagado_en || undefined,
+        // Preservar campos derivados si vienen desde selects con join (pagos/abonos)
+        valor_pagado_real: (cuota as any).valor_pagado_real ?? null,
+        fecha_pago_real: (cuota as any).fecha_pago_real ?? null,
+        observacion_pago: (cuota as any).observacion_pago ?? null,
+        abono_adicional: (cuota as any).abono_adicional ?? null,
+        observacion_abono: (cuota as any).observacion_abono ?? null,
+        total_pagado: (cuota as any).total_pagado ?? null
     }));
 
     // Calculo de cuotas pagadas

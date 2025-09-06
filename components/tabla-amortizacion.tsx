@@ -68,6 +68,7 @@ export function TablaAmortizacion({
               // Verificar si hay información de pago real
               const valorPagadoReal = (cuota as any).valor_pagado_real || null
               const abonoAdicional = (cuota as any).abono_adicional || null
+              const valorPagadoMostrado = valorPagadoReal ?? (cuota.estado === 'pagada' ? cuota.valor : null)
 
 
 
@@ -80,10 +81,10 @@ export function TablaAmortizacion({
                   <TableCell>{getEstadoBadge(cuota.estado)}</TableCell>
                   <TableCell className="text-right">{formatCurrency(cuota.valor)}</TableCell>
                   <TableCell className="text-right">
-                    {valorPagadoReal ? (
+                    {valorPagadoMostrado !== null ? (
                       <div>
                         <div className="font-semibold text-green-600">
-                          {formatCurrency(valorPagadoReal)}
+                          {formatCurrency(valorPagadoMostrado)}
                         </div>
                         {abonoAdicional && (
                           <div className="text-xs text-gray-500">
@@ -92,9 +93,7 @@ export function TablaAmortizacion({
                         )}
                       </div>
                     ) : (
-                      <span className="text-gray-400">
-                        {cuota.estado === 'pagada' ? formatCurrency(cuota.valor) : '-'}
-                      </span>
+                      <span className="text-gray-400">-</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right">{formatCurrency(cuota.interes)}</TableCell>

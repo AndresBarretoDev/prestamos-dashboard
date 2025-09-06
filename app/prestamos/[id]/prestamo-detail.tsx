@@ -24,6 +24,8 @@ import { ArrowLeftIcon, FileEditIcon, FileTextIcon, DownloadIcon, CheckCircleIco
 import { exportToPDF, generatePagareFilename } from "@/lib/utils/pdf-export"
 import { toast } from "sonner"
 import { generateShareableUrl } from "@/lib/utils/share"
+import { computeLoanStats } from "@/lib/utils/loan-stats"
+// Debug utilities removidas
 
 interface PrestamoDetailProps {
     id: string
@@ -227,6 +229,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
         }
     }
 
+
     if (loading) {
         return <SkeletonDetallePrestamo />
     }
@@ -247,6 +250,9 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                 return <Badge>{estado}</Badge>
         }
     }
+
+    // Stats consolidados para mostrar valores consistentes
+    const stats = prestamo ? computeLoanStats(prestamo) : undefined
 
     // Calcular la próxima cuota a pagar
     const proximaCuota =
@@ -358,8 +364,8 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                             </p>
                         </div>
                         <div>
-                            <p className="font-medium">Saldo pendiente:</p>
-                            <p>{formatCurrency(prestamo.tablaAmortizacion.filter(c => c.estado === 'pendiente').reduce((total, cuota) => total + cuota.valor, 0))}</p>
+                            <p className="font-medium">Saldo de capital pendiente:</p>
+                            <p>{formatCurrency(stats?.capitalPendienteReal || 0)}</p>
                         </div>
                     </CardContent>
                 </Card>
