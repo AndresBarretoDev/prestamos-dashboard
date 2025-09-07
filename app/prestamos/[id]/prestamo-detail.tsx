@@ -81,11 +81,12 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
         if (!prestamo) throw new Error("No hay préstamo seleccionado");
 
         try {
-            // Incrementar cuotas pagadas y marcar la cuota como pagada
-            const proximoCuotaMes = (prestamo.cuotasPagadas || 0) + 1
+            // Usar stats consistentes para obtener la próxima cuota
+            const currentStats = computeLoanStats(prestamo)
+            const proximoCuotaMes = currentStats.cuotasPagadas + 1
 
             // Obtener la próxima cuota para pasar su valor
-            const proximaCuota = prestamo.tablaAmortizacion.find(c => c.numero === proximoCuotaMes)
+            const proximaCuota = prestamo.tablaAmortizacion.find(c => c.numero === proximoCuotaMes && c.estado === 'pendiente')
             if (!proximaCuota) throw new Error("No se encontró la cuota a pagar");
 
             const prestamoActualizado = await markCuotaPagada(
@@ -254,11 +255,10 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
     // Stats consolidados para mostrar valores consistentes
     const stats = prestamo ? computeLoanStats(prestamo) : undefined
 
-    // Calcular la próxima cuota a pagar
-    const proximaCuota =
-        prestamo.cuotasPagadas !== undefined && prestamo.cuotasPagadas < prestamo.cuotas
-            ? prestamo.tablaAmortizacion[prestamo.cuotasPagadas]
-            : null
+    // Calcular la próxima cuota a pagar usando stats consistentes
+    const proximaCuota = stats && stats.cuotasPagadas < prestamo.cuotas
+        ? prestamo.tablaAmortizacion.find(c => c.estado === 'pendiente')
+        : null
 
     return (
         <div className="container mx-auto p-4">
@@ -360,7 +360,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                         <div>
                             <p className="font-medium">Cuotas pagadas:</p>
                             <p>
-                                {prestamo.cuotasPagadas || 0} de {prestamo.cuotas}
+                                {stats?.cuotasPagadas || 0} de {prestamo.cuotas}
                             </p>
                         </div>
                         <div>
@@ -375,7 +375,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
                     <Button
                         onClick={handleMarcarPagado}
-                        disabled={prestamo.estado === "pagado" || (prestamo.cuotasPagadas || 0) >= prestamo.cuotas}
+                        disabled={prestamo.estado === "pagado" || (stats?.cuotasPagadas || 0) >= prestamo.cuotas}
                     >
                         <CheckCircleIcon className="h-4 w-4 mr-2" />
                         Marcar cuota como pagada
@@ -418,7 +418,7 @@ export default function PrestamoDetail({ id }: PrestamoDetailProps) {
                     <CardTitle>Tabla de amortización</CardTitle>
                 </CardHeader>
                 <CardContent className="overflow-x-auto pt-4" data-tabla-amortizacion>
-                    <TablaAmortizacion tablaAmortizacion={prestamo.tablaAmortizacion} cuotasPagadas={prestamo.cuotasPagadas || 0} />
+                    <TablaAmortizacion tablaAmortizacion={prestamo.tablaAmortizacion} cuotasPagadas={stats?.cuotasPagadas || 0} />
                 </CardContent>
             </Card>
 

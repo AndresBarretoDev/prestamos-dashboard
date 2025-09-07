@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import type { Prestamo } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
+import { computeLoanStats } from "@/lib/utils/loan-stats"
 import { Loader2 } from "lucide-react"
 
 interface AbonoCapitalDialogProps {
@@ -43,9 +44,9 @@ export function AbonoCapitalDialog({
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
-    const saldoPendiente = prestamo.tablaAmortizacion
-        .filter(cuota => cuota.estado === 'pendiente')
-        .reduce((sum, cuota) => sum + cuota.valor, 0)
+    // Usar computeLoanStats para obtener el capital pendiente real
+    const stats = computeLoanStats(prestamo)
+    const capitalPendienteReal = stats.capitalPendienteReal
 
     const handleSubmit = async () => {
         try {
@@ -58,8 +59,8 @@ export function AbonoCapitalDialog({
                 return
             }
 
-            if (montoNumero > saldoPendiente) {
-                setError("El monto del abono no puede ser mayor al saldo pendiente")
+            if (montoNumero > capitalPendienteReal) {
+                setError(`El monto del abono (${formatCurrency(montoNumero)}) no puede ser mayor al capital pendiente (${formatCurrency(capitalPendienteReal)})`)
                 return
             }
 
@@ -102,8 +103,8 @@ export function AbonoCapitalDialog({
                     <div className="p-4 border rounded-md">
                         <h3 className="font-medium mb-2">Información del préstamo</h3>
                         <div className="grid grid-cols-2 gap-2">
-                            <p className="text-sm">Saldo pendiente:</p>
-                            <p className="text-sm font-medium">{formatCurrency(saldoPendiente)}</p>
+                            <p className="text-sm">Capital pendiente:</p>
+                            <p className="text-sm font-medium">{formatCurrency(capitalPendienteReal)}</p>
                         </div>
                     </div>
 

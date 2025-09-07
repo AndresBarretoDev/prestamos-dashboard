@@ -1,0 +1,62 @@
+---
+alwaysApply: true
+---
+# Estándares de Ingeniería (siempre aplicar)
+
+Estas reglas guían toda implementación para minimizar errores y deuda técnica.
+
+## Principios generales
+- **Rol**: actuar como experto en ingeniería de software.
+- **Claridad**: instrucciones y cambios con propósito claro; evitar ambigüedad.
+- **Sin deuda técnica**: no dejar TODOs; implementar o documentar en `docs/`.
+- **Responsabilidad única**: componentes, hooks y servicios con una sola razón de cambio.
+- **Reutilización**: extraer piezas comunes en `components/` (UI) y `lib/` (lógica), evitar duplicación.
+
+## Arquitectura y capas
+- UI (React) en `app/` y `components/` no debe contener reglas de negocio; usar hooks (`hooks/`) y servicios (`lib/services/`).
+- Acceso a datos en `lib/services/` y utilidades puras en `lib/utils/`.
+- Validaciones y esquemas tipados en `lib/schemas/`.
+- Tipos globales estrictos en `lib/types.ts`.
+
+## TypeScript y Clean Code
+- Tipado explícito en API públicas; evitar `any`.
+- Nombres descriptivos (intención > implementación), sin abreviaturas crípticas.
+- Control de flujo con early-return y manejo de errores significativo (no silenciar).
+- Funciones cortas y puras cuando sea posible.
+- Evitar anidación profunda (>2–3 niveles).
+
+## SOLID
+- SRP: cada módulo hace una cosa bien.
+- OCP: extender sin modificar; usar funciones utilitarias y hooks.
+- LSP: respetar contratos de tipos; no aflojar invariantes.
+- ISP: props/Interfaces pequeñas y enfocadas.
+- DIP: UI depende de abstracciones (servicios/hooks), no de detalles de infraestructura.
+
+## UI con shadcn/ui
+- Usar componentes de `components/ui/*` (shadcn) y patrones de composición.
+- No meter lógica de negocio en componentes de presentación.
+- Accesibilidad: atributos ARIA, focus management y estados de carga/disabled.
+
+## Supabase (MCP) – seguridad y consistencia
+- Antes de tocar BD, **usar herramientas MCP de Supabase** (p. ej. `mcp_supabase_list_projects`, `mcp_supabase_execute_sql`, `mcp_supabase_apply_migration`).
+- DDL vía migraciones (`apply_migration`), no `execute_sql` salvo DML/consultas.
+- Confirmar costes/organización/entorno antes de crear proyecto/branch.
+- Verificar RLS, logs y políticas con `mcp_supabase_get_logs` y `mcp_supabase_get_advisors` tras cambios.
+- No filtrar datos sensibles; manejar claves via variables de entorno.
+
+## Pruebas y verificación
+- Preferir E2E con Playwright para flujos críticos (creación préstamo, pago, abonos, recálculo).
+- Incluir semillas/cleanup aislados del entorno productivo.
+
+## Rendimiento y datos
+- Evitar N+1: agrupar lecturas (selects con relaciones) cuando sea seguro.
+- Redondeos y cálculos financieros centralizados en utilidades (p. ej., calculadora de cuotas) y testeados.
+
+## Documentación y DX
+- Cambios relevantes documentados en `docs/*` y mensajes de commit claros.
+- Mantener consistencia visual y semántica en ambas vistas (prestamista/deudor) usando utilidades compartidas.
+
+## Reglas específicas del proyecto
+- Amortización (método francés): fórmulas y redondeos en `lib/calculadora.ts`; último ajuste de capital en la última cuota.
+- Recalcular tras abonos: eliminar cuotas no pagadas, renumerar consecutivo, preservar fechas cuando aplique; nunca alterar cuotas ya pagadas.
+- Métricas unificadas: usar `computeLoanStats` para totales en todas las vistas; no duplicar lógica en UI.

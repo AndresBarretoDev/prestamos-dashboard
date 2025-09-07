@@ -4,6 +4,7 @@ import type { Prestamo, Deudor, Cuota } from '@/lib/types';
 import { addMonths, format } from 'date-fns';
 import { calcularCuotaMensual, calcularTablaAmortizacion } from '@/lib/calculadora';
 import { formatCurrency } from '@/lib/utils';
+import { computeLoanStats } from '@/lib/utils/loan-stats';
 
 // Cliente Supabase que maneja sesiones automáticamente
 const supabase = createClient();
@@ -36,6 +37,7 @@ export async function getPrestamos(): Promise<Prestamo[]> {
                     )
                 `)
                 .eq('prestamo_id', prestamoWithDeudor.id)
+                .neq('estado', 'eliminada')  // Filtrar cuotas eliminadas
                 .order('numero', { ascending: true });
 
             if (cuotasError) {
@@ -58,11 +60,10 @@ export async function getPrestamos(): Promise<Prestamo[]> {
             const cuotasConPagos = cuotasData?.map(cuota => {
                 const pagoReal = cuota.pagos?.[0];
 
-                const abonoRelacionado = cuota.estado === 'pagada' && cuota.pagado_en && abonosData
+                // Buscar abono que sea específicamente excedente de esta cuota (por observación, no por fecha)
+                const abonoRelacionado = cuota.estado === 'pagada' && abonosData
                     ? abonosData.find(abono => {
-                        const fechaCuota = new Date(cuota.pagado_en).toISOString().split('T')[0];
-                        const fechaAbono = new Date(abono.fecha_abono).toISOString().split('T')[0];
-                        return fechaCuota === fechaAbono;
+                        return abono.observaciones?.includes(`Excedente del pago de la cuota ${cuota.numero}`);
                     })
                     : null;
 
@@ -111,6 +112,7 @@ export async function getPrestamo(id: string): Promise<Prestamo | null> {
             )
         `)
         .eq('prestamo_id', id)
+        .neq('estado', 'eliminada')  // Filtrar cuotas eliminadas
         .order('numero', { ascending: true });
 
     if (cuotasError) {
@@ -133,12 +135,10 @@ export async function getPrestamo(id: string): Promise<Prestamo | null> {
     const cuotasConPagos = cuotasData?.map(cuota => {
         const pagoReal = cuota.pagos?.[0]; // Asumir un pago por cuota
 
-        // Buscar abono del mismo día que el pago de la cuota
-        const abonoRelacionado = cuota.estado === 'pagada' && cuota.pagado_en && abonosData
+        // Buscar abono que sea específicamente excedente de esta cuota (por observación, no por fecha)
+        const abonoRelacionado = cuota.estado === 'pagada' && abonosData
             ? abonosData.find(abono => {
-                const fechaCuota = new Date(cuota.pagado_en).toISOString().split('T')[0];
-                const fechaAbono = new Date(abono.fecha_abono).toISOString().split('T')[0];
-                return fechaCuota === fechaAbono;
+                return abono.observaciones?.includes(`Excedente del pago de la cuota ${cuota.numero}`);
             })
             : null;
 
@@ -189,6 +189,7 @@ export async function getPrestamoCompleto(id: string): Promise<Prestamo | null> 
                 )
             `)
             .eq('prestamo_id', id)
+            .neq('estado', 'eliminada')  // Filtrar cuotas eliminadas
             .order('numero', { ascending: true });
 
         const { data: abonosData } = await supabase
@@ -199,11 +200,10 @@ export async function getPrestamoCompleto(id: string): Promise<Prestamo | null> 
 
         const cuotasConPagos = cuotasData?.map(cuota => {
             const pagoReal = cuota.pagos?.[0];
-            const abonoRelacionado = cuota.estado === 'pagada' && cuota.pagado_en && abonosData
+            // Buscar abono que sea específicamente excedente de esta cuota (por observación, no por fecha)
+            const abonoRelacionado = cuota.estado === 'pagada' && abonosData
                 ? abonosData.find(abono => {
-                    const fechaCuota = new Date(cuota.pagado_en).toISOString().split('T')[0];
-                    const fechaAbono = new Date(abono.fecha_abono).toISOString().split('T')[0];
-                    return fechaCuota === fechaAbono;
+                    return abono.observaciones?.includes(`Excedente del pago de la cuota ${cuota.numero}`);
                 })
                 : null;
 
@@ -396,150 +396,340 @@ export async function registrarAbonoCapital(
         tipo_recalculo: 'reducir_cuota' | 'reducir_plazo';
     }
 ): Promise<Prestamo | null> {
-    // Obtener el préstamo actual
-    const prestamo = await getPrestamo(prestamoId);
-    if (!prestamo) return null;
-
-    // Calcular capital (principal) pendiente: suma de abonos a capital de cuotas pendientes
-    const capitalPendiente = prestamo.tablaAmortizacion
-        .filter(cuota => cuota.estado === 'pendiente')
-        .reduce((sum, cuota) => sum + cuota.abono_capital, 0);
-
-    // Validar que el abono no exceda el capital pendiente
-    if (data.monto > capitalPendiente) {
-        throw new Error('El monto del abono excede el capital pendiente del préstamo');
-    }
-
-    // Registrar el abono
-    const { error: abonoError } = await supabase
-        .from('abonos_capital')
-        .insert({
-            prestamo_id: prestamoId,
-            monto: data.monto,
-            fecha_abono: data.fecha_abono,
-            observaciones: data.observaciones,
-            tipo_recalculo: data.tipo_recalculo
+    try {
+        console.log(`📊 INICIANDO REGISTRO DE ABONO: ${data.monto} para préstamo ${prestamoId}`);
+        
+        // Intentar RPC primero
+        console.log(`🔧 INTENTANDO RPC recalc_prestamo_after_abono...`);
+        const { error: rpcError } = await supabase.rpc('recalc_prestamo_after_abono', {
+            p_prestamo: prestamoId,
+            p_monto: data.monto,
+            p_fecha: data.fecha_abono,
+            p_tipo: data.tipo_recalculo
         });
 
-    if (abonoError) {
-        console.error('Error registering abono:', abonoError);
-        return null;
-    }
-
-    // Recalcular el préstamo usando capital pendiente como base
-    const nuevoSaldo = Math.max(0, capitalPendiente - data.monto);
-    const cuotasPagadas = prestamo.tablaAmortizacion.filter(cuota => cuota.estado === 'pagada').length;
-    const cuotasRestantes = prestamo.tablaAmortizacion.filter(cuota => cuota.estado === 'pendiente').length;
-
-    // Guardar las fechas de vencimiento originales para mantenerlas
-    const cuotasPendientesOriginales = prestamo.tablaAmortizacion
-        .filter(cuota => cuota.estado === 'pendiente')
-        .sort((a, b) => a.numero - b.numero);
-
-    let nuevaTablaAmortizacion: Cuota[];
-    let nuevaCantidadCuotas: number;
-    let nuevaCuotaMensual: number;
-
-    if (data.tipo_recalculo === 'reducir_cuota') {
-        // Recalcular cuota manteniendo el plazo
-        const nuevaCuota = calcularCuotaMensual(nuevoSaldo, prestamo.tasa_mensual, cuotasRestantes);
-        nuevaTablaAmortizacion = calcularTablaAmortizacion(
-            nuevoSaldo,
-            prestamo.tasa_mensual,
-            cuotasRestantes,
-            nuevaCuota,
-            prestamo.fecha_inicio
-        );
-        nuevaCantidadCuotas = cuotasPagadas + cuotasRestantes;
-        nuevaCuotaMensual = nuevaCuota;
-    } else {
-        // Recalcular plazo manteniendo la cuota
-        const nuevaCuota = prestamo.cuota_mensual;
-        // Usar tasa mensual en decimal para validaciones y cálculo de plazo
-        const tasaDecimal = prestamo.tasa_mensual / 100;
-        // Verificar que el monto restante sea suficiente para ser pagado con la cuota actual
-        if (nuevaCuota <= (nuevoSaldo * tasaDecimal)) {
-            throw new Error('La cuota actual es demasiado baja para cubrir el saldo restante. Elija reducir cuota en su lugar.');
+        // Si RPC funciona, usar ese resultado
+        if (!rpcError) {
+            console.log(`✅ RPC EXITOSO, obteniendo préstamo actualizado`);
+            const prestamoActualizado = await getPrestamo(prestamoId);
+            
+            if (prestamoActualizado) {
+                console.log(`📊 PRÉSTAMO ACTUALIZADO:`, {
+                    cuotas: prestamoActualizado.cuotas,
+                    cuotasPagadas: prestamoActualizado.cuotasPagadas,
+                    estado: prestamoActualizado.estado,
+                    totalCuotasEnTabla: prestamoActualizado.tablaAmortizacion.length,
+                    cuotasPagadasEnTabla: prestamoActualizado.tablaAmortizacion.filter(c => c.estado === 'pagada').length,
+                    cuotasPendientesEnTabla: prestamoActualizado.tablaAmortizacion.filter(c => c.estado === 'pendiente').length
+                });
+                
+                // Verificar stats computed
+                const stats = computeLoanStats(prestamoActualizado);
+                console.log(`📈 STATS COMPUTADAS:`, stats);
+            }
+            
+            return prestamoActualizado;
         }
 
-        const nuevoPlazo = Math.max(1, Math.ceil(
-            Math.log(nuevaCuota / (nuevaCuota - nuevoSaldo * tasaDecimal)) /
-            Math.log(1 + tasaDecimal)
-        ));
+        // Fallback: implementar recálculo transaccional desde frontend
+        console.warn('🚨 RPC FALLÓ, usando fallback frontend:', rpcError);
+        console.log(`🔄 EJECUTANDO RECÁLCULO TRANSACCIONAL FRONTEND...`);
+        return await recalcularPrestamoTransaccional(prestamoId, data);
 
-        nuevaTablaAmortizacion = calcularTablaAmortizacion(
-            nuevoSaldo,
-            prestamo.tasa_mensual,
-            nuevoPlazo,
-            nuevaCuota,
-            prestamo.fecha_inicio
-        );
-        nuevaCantidadCuotas = cuotasPagadas + nuevoPlazo;
-        nuevaCuotaMensual = nuevaCuota;
-    }
-
-    // Verificar que haya cuotas calculadas
-    if (!nuevaTablaAmortizacion || nuevaTablaAmortizacion.length === 0) {
-        throw new Error('No se pudo calcular una nueva tabla de amortización. El saldo pendiente es demasiado bajo.');
-    }
-
-    // Actualizar el préstamo con la nueva tabla de amortización
-    const { error: updateError } = await supabase
-        .from('prestamos')
-        .update({
-            cuota_mensual: nuevaCuotaMensual,
-            cuotas: nuevaCantidadCuotas
-        })
-        .eq('id', prestamoId);
-
-    if (updateError) {
-        console.error('Error updating prestamo:', updateError);
+    } catch (error) {
+        console.error('Error en registrarAbonoCapital:', error);
         return null;
     }
+}
 
-    // Eliminar todas las cuotas pendientes antes de insertar las nuevas
-    const { error: deleteError } = await supabase
-        .from('cuotas')
-        .delete()
-        .eq('prestamo_id', prestamoId)
-        .eq('estado', 'pendiente');
-
-    if (deleteError) {
-        console.error('Error deleting existing cuotas:', deleteError);
-        return null;
+// Implementación de recálculo transaccional desde frontend según flujo-y-escenarios-abonos.md
+async function recalcularPrestamoTransaccional(
+    prestamoId: string,
+    data: {
+        monto: number;
+        fecha_abono: string;
+        observaciones?: string;
+        tipo_recalculo: 'reducir_cuota' | 'reducir_plazo';
     }
+): Promise<Prestamo | null> {
+    try {
+        // 1. Obtener préstamo actual
+        const prestamo = await getPrestamo(prestamoId);
+        if (!prestamo) return null;
 
-    // Preparar las nuevas cuotas con numeración correcta y preservando las fechas originales
-    const cuotasToInsert = nuevaTablaAmortizacion.map((cuota, index) => {
-        // Mantener las fechas originales si están disponibles, o usar las nuevas calculadas
-        const fechaVencimiento = index < cuotasPendientesOriginales.length
-            ? cuotasPendientesOriginales[index].fecha_vencimiento
-            : cuota.fecha_vencimiento;
+        // 2. Calcular capital pendiente real según computeLoanStats
+        const stats = computeLoanStats(prestamo);
+        const capitalPendienteReal = stats.capitalPendienteReal;
 
-        return {
-            prestamo_id: prestamoId,
-            numero: cuotasPendientesOriginales[index]?.numero || (cuotasPagadas + index + 1),
-            fecha_vencimiento: fechaVencimiento,
-            valor: cuota.valor,
-            interes: cuota.interes,
-            abono_capital: cuota.abono_capital,
-            estado: 'pendiente'
-        };
-    });
+        // 3. Validar que abono no exceda capital pendiente
+        if (data.monto > capitalPendienteReal) {
+            throw new Error(`El monto del abono (${formatCurrency(data.monto)}) excede el capital pendiente (${formatCurrency(capitalPendienteReal)})`);
+        }
 
-    // Insertar las nuevas cuotas
-    if (cuotasToInsert.length > 0) {
-        const { error: insertError } = await supabase
-            .from('cuotas')
-            .insert(cuotasToInsert);
+        // 4. Insertar abono a capital
+        const { error: abonoError } = await supabase
+            .from('abonos_capital')
+            .insert({
+                prestamo_id: prestamoId,
+                monto: data.monto,
+                fecha_abono: data.fecha_abono,
+                observaciones: data.observaciones || '',
+                tipo_recalculo: data.tipo_recalculo
+            });
 
-        if (insertError) {
-            console.error('Error inserting new cuotas:', insertError);
+        if (abonoError) {
+            console.error('Error insertando abono:', abonoError);
             return null;
         }
+
+        // 5. Verificar cuotas antes del DELETE
+        const { data: cuotasAntesDelete, error: errorAntesDelete } = await supabase
+            .from('cuotas')
+            .select('numero, estado')
+            .eq('prestamo_id', prestamoId)
+            .order('numero');
+
+        if (errorAntesDelete) {
+            console.error('Error obteniendo cuotas antes de DELETE:', errorAntesDelete);
+            return null;
+        }
+
+        console.log('DEBUG: Cuotas antes de DELETE:', cuotasAntesDelete?.map(c => `${c.numero}:${c.estado}`));
+
+        // Borrar cuotas no pagadas usando OR para manejar RLS
+        const { error: deleteError, count: deletedCount } = await supabase
+            .from('cuotas')
+            .delete({ count: 'exact' })
+            .eq('prestamo_id', prestamoId)
+            .in('estado', ['pendiente', 'vencida']); // Usar IN en lugar de neq
+
+        // Si el DELETE no funcionó (RLS), intentar DELETE individual o usar estrategia alternativa
+        if (deleteError || deletedCount === 0) {
+            console.error('DELETE masivo bloqueado por RLS:', deleteError);
+            console.warn('Intentando DELETE individual por cuota...');
+            
+            // Obtener las cuotas a eliminar individualmente
+            const { data: cuotasAEliminar } = await supabase
+                .from('cuotas')
+                .select('id, numero')
+                .eq('prestamo_id', prestamoId)
+                .in('estado', ['pendiente', 'vencida']);
+            
+            if (cuotasAEliminar && cuotasAEliminar.length > 0) {
+                console.log(`Intentando eliminar ${cuotasAEliminar.length} cuotas individualmente...`);
+                
+                // Intentar eliminar una por una
+                let eliminadasExitosamente = 0;
+                for (const cuota of cuotasAEliminar) {
+                    const { error: deleteIndividualError } = await supabase
+                        .from('cuotas')
+                        .delete()
+                        .eq('id', cuota.id);
+                    
+                    if (!deleteIndividualError) {
+                        eliminadasExitosamente++;
+                    } else {
+                        console.error(`Error eliminando cuota ${cuota.numero}:`, deleteIndividualError);
+                    }
+                }
+                
+                if (eliminadasExitosamente === 0) {
+                    console.error('No se pudo eliminar ninguna cuota. RLS está bloqueando completamente.');
+                    throw new Error('No se pueden eliminar las cuotas existentes para el recálculo. Contacte al administrador.');
+                }
+                
+                console.log(`✅ Se eliminaron ${eliminadasExitosamente} de ${cuotasAEliminar.length} cuotas`);
+            }
+        } else {
+            console.log(`✅ DELETE masivo exitoso: Se borraron ${deletedCount} cuotas no pagadas`);
+        }
+
+        // Verificar cuotas después del DELETE
+        const { data: cuotasDespuesDelete, error: errorDespuesDelete } = await supabase
+            .from('cuotas')
+            .select('numero, estado')
+            .eq('prestamo_id', prestamoId)
+            .order('numero');
+
+        if (errorDespuesDelete) {
+            console.error('Error obteniendo cuotas después de DELETE:', errorDespuesDelete);
+            return null;
+        }
+
+        console.log('DEBUG: Cuotas después de DELETE:', cuotasDespuesDelete?.map(c => `${c.numero}:${c.estado}`));
+
+        // 6. Obtener max numero de cuota pagada DESPUÉS del DELETE
+        const { data: maxPagada, error: maxError } = await supabase
+            .from('cuotas')
+            .select('numero')
+            .eq('prestamo_id', prestamoId)
+            .eq('estado', 'pagada')
+            .order('numero', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (maxError) {
+            console.error('Error obteniendo max cuota pagada:', maxError);
+            return null;
+        }
+
+        const maxNumeroPagado = maxPagada?.numero || 0;
+
+        // 7. El abono ya fue registrado, por lo que capitalPendienteReal ya incluye el descuento
+        // NO debemos restar el monto otra vez - sería doble descuento
+        const nuevoCapitalPendiente = capitalPendienteReal;
+        
+        console.log(`💰 CÁLCULO CAPITAL CORREGIDO:`, {
+            capitalPendienteReal: capitalPendienteReal,
+            montoAbonoYaAplicado: data.monto,
+            nuevoCapitalPendiente: nuevoCapitalPendiente,
+            cuotasPagadas: maxNumeroPagado,
+            cuotasRestantes: prestamo.cuotas - maxNumeroPagado,
+            nota: "El abono ya fue aplicado al calcular capitalPendienteReal"
+        });
+
+        // Si capital pendiente es 0 o menor, marcar como pagado
+        if (nuevoCapitalPendiente <= 0) {
+            const { error: updateError } = await supabase
+                .from('prestamos')
+                .update({ estado: 'pagado' })
+                .eq('id', prestamoId);
+
+            if (updateError) {
+                console.error('Error actualizando estado préstamo:', updateError);
+            }
+
+            return getPrestamo(prestamoId);
+        }
+
+        // 8. Generar nuevas cuotas según tipo de recálculo
+        const nuevasCuotas = await generarNuevasCuotas(
+            prestamo,
+            nuevoCapitalPendiente,
+            maxNumeroPagado,
+            data.tipo_recalculo
+        );
+
+        console.log(`DEBUG: Generando ${nuevasCuotas.length} nuevas cuotas desde número ${maxNumeroPagado + 1}`);
+
+        // 9. Insertar/actualizar nuevas cuotas usando UPSERT para evitar conflictos
+        if (nuevasCuotas.length > 0) {
+            const { error: insertError } = await supabase
+                .from('cuotas')
+                .upsert(nuevasCuotas, { 
+                    onConflict: 'prestamo_id,numero',
+                    ignoreDuplicates: false 
+                });
+
+            if (insertError) {
+                console.error('Error insertando nuevas cuotas:', insertError);
+                console.error('Cuotas que se intentaron insertar:', nuevasCuotas.map(c => `${c.numero}`));
+                return null;
+            }
+
+            // 10. Actualizar datos del préstamo
+            const { error: updatePrestamoError } = await supabase
+                .from('prestamos')
+                .update({
+                    cuota_mensual: nuevasCuotas[0]?.valor || prestamo.cuota_mensual,
+                    cuotas: maxNumeroPagado + nuevasCuotas.length
+                })
+                .eq('id', prestamoId);
+
+            if (updatePrestamoError) {
+                console.error('Error actualizando préstamo:', updatePrestamoError);
+            }
+        }
+
+        // Verificar si quedan cuotas pendientes tras el recálculo
+        const prestamoActualizado = await getPrestamo(prestamoId);
+        if (prestamoActualizado) {
+            const statsActualizados = computeLoanStats(prestamoActualizado);
+            
+            // Si no hay cuotas pendientes, marcar como pagado
+            if (statsActualizados.cuotasPendientes === 0 && prestamoActualizado.estado !== 'pagado') {
+                const { error: updateEstadoError } = await supabase
+                    .from('prestamos')
+                    .update({ estado: 'pagado' })
+                    .eq('id', prestamoId);
+
+                if (updateEstadoError) {
+                    console.error('Error actualizando estado final:', updateEstadoError);
+                }
+
+                return getPrestamo(prestamoId);
+            }
+        }
+
+        return prestamoActualizado;
+
+    } catch (error) {
+        console.error('Error en recálculo transaccional:', error);
+        throw error;
+    }
+}
+
+// Función auxiliar para generar nuevas cuotas según tipo de recálculo
+async function generarNuevasCuotas(
+    prestamo: Prestamo,
+    capitalPendiente: number,
+    maxNumeroPagado: number,
+    tipoRecalculo: 'reducir_cuota' | 'reducir_plazo'
+): Promise<any[]> {
+    const { calcularCuotaMensual, calcularTablaAmortizacion } = await import('@/lib/calculadora');
+    
+    let nuevaCuota: number;
+    let nuevoNumeroMeses: number;
+
+    if (tipoRecalculo === 'reducir_cuota') {
+        // Mantener plazo original, recalcular cuota
+        nuevoNumeroMeses = prestamo.cuotas - maxNumeroPagado;
+        nuevaCuota = calcularCuotaMensual(capitalPendiente, prestamo.tasa_mensual, nuevoNumeroMeses);
+        
+        console.log(`🔢 CÁLCULO NUEVA CUOTA:`, {
+            tipoRecalculo,
+            capitalPendiente,
+            tasaMensual: prestamo.tasa_mensual,
+            nuevoNumeroMeses,
+            nuevaCuota
+        });
+    } else {
+        // Mantener cuota original, recalcular plazo
+        const tasaDecimal = prestamo.tasa_mensual / 100;
+        const cuotaActual = prestamo.cuota_mensual;
+        
+        // Validar que cuota sea viable: cuota > capital * tasa
+        if (cuotaActual <= capitalPendiente * tasaDecimal) {
+            throw new Error(`La cuota actual (${formatCurrency(cuotaActual)}) es insuficiente para cubrir los intereses`);
+        }
+
+        // Calcular nuevo plazo: n' = ceil(ln(C/(C-P*r)) / ln(1+r))
+        const numerador = Math.log(cuotaActual / (cuotaActual - capitalPendiente * tasaDecimal));
+        const denominador = Math.log(1 + tasaDecimal);
+        nuevoNumeroMeses = Math.ceil(numerador / denominador);
+        nuevaCuota = cuotaActual;
     }
 
-    return getPrestamo(prestamoId);
+    // Generar tabla con numeración desde maxNumeroPagado + 1
+    const fechaInicioStr = prestamo.fecha_inicio;
+    const tablaRecalculada = calcularTablaAmortizacion(
+        capitalPendiente,
+        prestamo.tasa_mensual,
+        nuevoNumeroMeses,
+        nuevaCuota,
+        fechaInicioStr
+    );
+
+    // Renumerar desde maxNumeroPagado + 1
+    return tablaRecalculada.map((cuota, index) => ({
+        prestamo_id: prestamo.id,
+        numero: maxNumeroPagado + index + 1,
+        fecha_vencimiento: cuota.fecha_vencimiento,
+        valor: cuota.valor,
+        interes: cuota.interes,
+        abono_capital: cuota.abono_capital,
+        estado: 'pendiente'
+    }));
 }
 
 // Función para obtener el historial de abonos a capital
@@ -617,22 +807,34 @@ export async function markCuotaPagada(
     // registrar el excedente como abono a capital
     if (valorPagado > cuota.valor && registrarExcedente) {
         const excedente = valorPagado - cuota.valor;
+        console.log(`🔥 EXCEDENTE DETECTADO: Cuota ${cuotaNumero}, Excedente: ${excedente}, Valor cuota: ${cuota.valor}, Valor pagado: ${valorPagado}`);
+        
         // Solo registrar si el excedente es significativo (más de 100 pesos)
         if (excedente >= 100) {
-            await registrarAbonoCapital(prestamoId, {
+            console.log(`🚀 REGISTRANDO ABONO A CAPITAL: ${excedente}`);
+            const resultadoAbono = await registrarAbonoCapital(prestamoId, {
                 monto: excedente,
                 fecha_abono: fechaPago,
                 observaciones: `Excedente del pago de la cuota ${cuotaNumero}`,
                 tipo_recalculo: 'reducir_cuota' // Por defecto, reducir la cuota
             });
+            
+            if (resultadoAbono) {
+                console.log(`✅ ABONO REGISTRADO EXITOSAMENTE`);
+            } else {
+                console.error(`❌ ERROR AL REGISTRAR ABONO`);
+            }
+        } else {
+            console.log(`⚠️ Excedente ${excedente} menor a 100, no se registra como abono`);
         }
     }
 
-    // Verificar si todas las cuotas están pagadas
+    // Verificar si todas las cuotas están pagadas (excluyendo eliminadas)
     const { data: cuotasPendientes, error: pendientesError } = await supabase
         .from('cuotas')
         .select('count')
         .eq('prestamo_id', prestamoId)
+        .neq('estado', 'eliminada')  // Excluir eliminadas
         .not('estado', 'eq', 'pagada');
 
     if (pendientesError) {

@@ -68,7 +68,10 @@ export function TablaAmortizacion({
               // Verificar si hay información de pago real
               const valorPagadoReal = (cuota as any).valor_pagado_real || null
               const abonoAdicional = (cuota as any).abono_adicional || null
+              // Si hay valor pagado real, mostrarlo; si no, usar el valor de la cuota solo si está pagada
               const valorPagadoMostrado = valorPagadoReal ?? (cuota.estado === 'pagada' ? cuota.valor : null)
+              // Solo mostrar el abono adicional si hay valor pagado real Y abono adicional
+              const deberiasMostrarAbono = valorPagadoReal && abonoAdicional && valorPagadoReal !== cuota.valor
 
 
 
