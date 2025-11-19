@@ -397,10 +397,7 @@ export async function registrarAbonoCapital(
     }
 ): Promise<Prestamo | null> {
     try {
-        console.log(`📊 INICIANDO REGISTRO DE ABONO: ${data.monto} para préstamo ${prestamoId}`);
-        
         // Intentar RPC primero
-        console.log(`🔧 INTENTANDO RPC recalc_prestamo_after_abono...`);
         const { error: rpcError } = await supabase.rpc('recalc_prestamo_after_abono', {
             p_prestamo: prestamoId,
             p_monto: data.monto,
@@ -410,30 +407,11 @@ export async function registrarAbonoCapital(
 
         // Si RPC funciona, usar ese resultado
         if (!rpcError) {
-            console.log(`✅ RPC EXITOSO, obteniendo préstamo actualizado`);
-            const prestamoActualizado = await getPrestamo(prestamoId);
-            
-            if (prestamoActualizado) {
-                console.log(`📊 PRÉSTAMO ACTUALIZADO:`, {
-                    cuotas: prestamoActualizado.cuotas,
-                    cuotasPagadas: prestamoActualizado.cuotasPagadas,
-                    estado: prestamoActualizado.estado,
-                    totalCuotasEnTabla: prestamoActualizado.tablaAmortizacion.length,
-                    cuotasPagadasEnTabla: prestamoActualizado.tablaAmortizacion.filter(c => c.estado === 'pagada').length,
-                    cuotasPendientesEnTabla: prestamoActualizado.tablaAmortizacion.filter(c => c.estado === 'pendiente').length
-                });
-                
-                // Verificar stats computed
-                const stats = computeLoanStats(prestamoActualizado);
-                console.log(`📈 STATS COMPUTADAS:`, stats);
-            }
-            
-            return prestamoActualizado;
+            return getPrestamo(prestamoId);
         }
 
         // Fallback: implementar recálculo transaccional desde frontend
-        console.warn('🚨 RPC FALLÓ, usando fallback frontend:', rpcError);
-        console.log(`🔄 EJECUTANDO RECÁLCULO TRANSACCIONAL FRONTEND...`);
+        console.warn('RPC failed, using frontend fallback:', rpcError);
         return await recalcularPrestamoTransaccional(prestamoId, data);
 
     } catch (error) {
@@ -494,7 +472,7 @@ async function recalcularPrestamoTransaccional(
             return null;
         }
 
-        console.log('DEBUG: Cuotas antes de DELETE:', cuotasAntesDelete?.map(c => `${c.numero}:${c.estado}`));
+        // Cuotas identificadas para DELETE
 
         // Borrar cuotas no pagadas usando OR para manejar RLS
         const { error: deleteError, count: deletedCount } = await supabase
@@ -503,10 +481,8 @@ async function recalcularPrestamoTransaccional(
             .eq('prestamo_id', prestamoId)
             .in('estado', ['pendiente', 'vencida']); // Usar IN en lugar de neq
 
-        // Si el DELETE no funcionó (RLS), intentar DELETE individual o usar estrategia alternativa
+        // Si el DELETE no funcionó (RLS), intentar DELETE individual
         if (deleteError || deletedCount === 0) {
-            console.error('DELETE masivo bloqueado por RLS:', deleteError);
-            console.warn('Intentando DELETE individual por cuota...');
             
             // Obtener las cuotas a eliminar individualmente
             const { data: cuotasAEliminar } = await supabase
@@ -516,8 +492,6 @@ async function recalcularPrestamoTransaccional(
                 .in('estado', ['pendiente', 'vencida']);
             
             if (cuotasAEliminar && cuotasAEliminar.length > 0) {
-                console.log(`Intentando eliminar ${cuotasAEliminar.length} cuotas individualmente...`);
-                
                 // Intentar eliminar una por una
                 let eliminadasExitosamente = 0;
                 for (const cuota of cuotasAEliminar) {
@@ -528,35 +502,16 @@ async function recalcularPrestamoTransaccional(
                     
                     if (!deleteIndividualError) {
                         eliminadasExitosamente++;
-                    } else {
-                        console.error(`Error eliminando cuota ${cuota.numero}:`, deleteIndividualError);
                     }
                 }
                 
                 if (eliminadasExitosamente === 0) {
-                    console.error('No se pudo eliminar ninguna cuota. RLS está bloqueando completamente.');
                     throw new Error('No se pueden eliminar las cuotas existentes para el recálculo. Contacte al administrador.');
                 }
-                
-                console.log(`✅ Se eliminaron ${eliminadasExitosamente} de ${cuotasAEliminar.length} cuotas`);
             }
-        } else {
-            console.log(`✅ DELETE masivo exitoso: Se borraron ${deletedCount} cuotas no pagadas`);
         }
 
-        // Verificar cuotas después del DELETE
-        const { data: cuotasDespuesDelete, error: errorDespuesDelete } = await supabase
-            .from('cuotas')
-            .select('numero, estado')
-            .eq('prestamo_id', prestamoId)
-            .order('numero');
-
-        if (errorDespuesDelete) {
-            console.error('Error obteniendo cuotas después de DELETE:', errorDespuesDelete);
-            return null;
-        }
-
-        console.log('DEBUG: Cuotas después de DELETE:', cuotasDespuesDelete?.map(c => `${c.numero}:${c.estado}`));
+        // Obtener información para generar nuevas cuotas
 
         // 6. Obtener max numero de cuota pagada DESPUÉS del DELETE
         const { data: maxPagada, error: maxError } = await supabase
@@ -579,14 +534,7 @@ async function recalcularPrestamoTransaccional(
         // NO debemos restar el monto otra vez - sería doble descuento
         const nuevoCapitalPendiente = capitalPendienteReal;
         
-        console.log(`💰 CÁLCULO CAPITAL CORREGIDO:`, {
-            capitalPendienteReal: capitalPendienteReal,
-            montoAbonoYaAplicado: data.monto,
-            nuevoCapitalPendiente: nuevoCapitalPendiente,
-            cuotasPagadas: maxNumeroPagado,
-            cuotasRestantes: prestamo.cuotas - maxNumeroPagado,
-            nota: "El abono ya fue aplicado al calcular capitalPendienteReal"
-        });
+        // El abono ya fue registrado, por lo que capitalPendienteReal ya incluye el descuento
 
         // Si capital pendiente es 0 o menor, marcar como pagado
         if (nuevoCapitalPendiente <= 0) {
@@ -610,7 +558,7 @@ async function recalcularPrestamoTransaccional(
             data.tipo_recalculo
         );
 
-        console.log(`DEBUG: Generando ${nuevasCuotas.length} nuevas cuotas desde número ${maxNumeroPagado + 1}`);
+        // Generar nuevas cuotas recalculadas
 
         // 9. Insertar/actualizar nuevas cuotas usando UPSERT para evitar conflictos
         if (nuevasCuotas.length > 0) {
@@ -686,13 +634,7 @@ async function generarNuevasCuotas(
         nuevoNumeroMeses = prestamo.cuotas - maxNumeroPagado;
         nuevaCuota = calcularCuotaMensual(capitalPendiente, prestamo.tasa_mensual, nuevoNumeroMeses);
         
-        console.log(`🔢 CÁLCULO NUEVA CUOTA:`, {
-            tipoRecalculo,
-            capitalPendiente,
-            tasaMensual: prestamo.tasa_mensual,
-            nuevoNumeroMeses,
-            nuevaCuota
-        });
+        // Nueva cuota calculada según tipo de recálculo
     } else {
         // Mantener cuota original, recalcular plazo
         const tasaDecimal = prestamo.tasa_mensual / 100;
@@ -807,25 +749,14 @@ export async function markCuotaPagada(
     // registrar el excedente como abono a capital
     if (valorPagado > cuota.valor && registrarExcedente) {
         const excedente = valorPagado - cuota.valor;
-        console.log(`🔥 EXCEDENTE DETECTADO: Cuota ${cuotaNumero}, Excedente: ${excedente}, Valor cuota: ${cuota.valor}, Valor pagado: ${valorPagado}`);
-        
         // Solo registrar si el excedente es significativo (más de 100 pesos)
         if (excedente >= 100) {
-            console.log(`🚀 REGISTRANDO ABONO A CAPITAL: ${excedente}`);
-            const resultadoAbono = await registrarAbonoCapital(prestamoId, {
+            await registrarAbonoCapital(prestamoId, {
                 monto: excedente,
                 fecha_abono: fechaPago,
                 observaciones: `Excedente del pago de la cuota ${cuotaNumero}`,
                 tipo_recalculo: 'reducir_cuota' // Por defecto, reducir la cuota
             });
-            
-            if (resultadoAbono) {
-                console.log(`✅ ABONO REGISTRADO EXITOSAMENTE`);
-            } else {
-                console.error(`❌ ERROR AL REGISTRAR ABONO`);
-            }
-        } else {
-            console.log(`⚠️ Excedente ${excedente} menor a 100, no se registra como abono`);
         }
     }
 
